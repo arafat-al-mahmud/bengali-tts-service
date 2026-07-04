@@ -8,12 +8,12 @@ The walking skeleton: a compose-runnable stack where every service starts, conne
 
 ## Acceptance criteria
 
-- [ ] `docker compose up` brings up gateway, worker, Postgres, Redis, and MinIO with no manual steps
-- [ ] Gateway liveness endpoint returns 200; readiness returns 200 only when Postgres, Redis, and MinIO are all reachable, 503 otherwise
-- [ ] Prisma migration applies automatically on startup; a committed SQL migration file exists
-- [ ] Worker starts, connects to Redis, and logs readiness (no job handling yet)
-- [ ] One Supertest integration test hits the health endpoints against real containers
-- [ ] CI runs lint, typecheck, and test jobs for gateway and worker on every push and PR, and is green
+- [x] `docker compose up` brings up gateway, worker, Postgres, Redis, and MinIO with no manual steps
+- [x] Gateway liveness endpoint returns 200; readiness returns 200 only when Postgres, Redis, and MinIO are all reachable, 503 otherwise
+- [x] Prisma migration applies automatically on startup; a committed SQL migration file exists
+- [x] Worker starts, connects to Redis, and logs readiness (no job handling yet)
+- [x] One Supertest integration test hits the health endpoints against real containers
+- [x] CI runs lint, typecheck, and test jobs for gateway and worker on every push and PR, and is green
 
 ## Blocked by
 
