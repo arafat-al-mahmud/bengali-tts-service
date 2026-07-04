@@ -10,11 +10,11 @@ Covers user stories 19, 20, 22, 23.
 
 ## Acceptance criteria
 
-- [ ] History endpoint returns only the caller's Jobs, newest first, with pagination and a stable page shape
-- [ ] Failed Jobs appear in history with machine-readable error codes
-- [ ] For every job-scoped route, another user's job id returns a response indistinguishable from a nonexistent id
-- [ ] Composite index on (user, created-at desc) exists in a committed migration
-- [ ] Integration tests: two users each submit jobs; each sees exactly their own history; cross-user reads fail on every route
+- [x] History endpoint returns only the caller's Jobs, newest first, with pagination and a stable page shape
+- [x] Failed Jobs appear in history with machine-readable error codes
+- [x] For every job-scoped route, another user's job id returns a response indistinguishable from a nonexistent id
+- [x] Composite index on (user, created-at desc) exists in a committed migration
+- [x] Integration tests: two users each submit jobs; each sees exactly their own history; cross-user reads fail on every route
 
 ## Blocked by
 

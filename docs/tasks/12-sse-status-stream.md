@@ -10,11 +10,11 @@ Covers user story 21.
 
 ## Acceptance criteria
 
-- [ ] Subscribing to a Job streams its status transitions as SSE events and closes after COMPLETED or FAILED
-- [ ] Subscribing to another user's Job behaves like a nonexistent resource
-- [ ] A client connecting mid-lifecycle immediately receives the current status, then subsequent transitions
-- [ ] Graceful shutdown closes streams cleanly
-- [ ] Integration test consumes the stream end to end with the fake engine
+- [x] Subscribing to a Job streams its status transitions as SSE events and closes after COMPLETED or FAILED
+- [x] Subscribing to another user's Job behaves like a nonexistent resource
+- [x] A client connecting mid-lifecycle immediately receives the current status, then subsequent transitions
+- [x] Graceful shutdown closes streams cleanly
+- [x] Integration test consumes the stream end to end with the fake engine
 
 ## Blocked by
 

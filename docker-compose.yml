@@ -1,0 +1,132 @@
+services:
+  gateway:
+    build: ./gateway
+    ports:
+      - "${GATEWAY_PORT:-3000}:3000"
+    environment:
+      PORT: 3000
+      DATABASE_URL: postgresql://tts:tts@postgres:5432/tts
+      REDIS_URL: redis://redis:6379
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      S3_BUCKET: tts-audio
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Backpressure gates, applied to job submission in this order:
+      # per-user requests per minute (429 RATE_LIMITED + Retry-After),
+      # per-user unfinished-job cap (429 PENDING_CAP_EXCEEDED),
+      # global queue depth (503 QUEUE_FULL).
+      TTS_RATE_LIMIT_PER_MINUTE: ${TTS_RATE_LIMIT_PER_MINUTE:-30}
+      TTS_PENDING_CAP: ${TTS_PENDING_CAP:-10}
+      TTS_QUEUE_CAPACITY: ${TTS_QUEUE_CAPACITY:-100}
+      # One retry with exponential backoff for transient inference failures.
+      TTS_JOB_ATTEMPTS: ${TTS_JOB_ATTEMPTS:-2}
+      TTS_RETRY_BACKOFF_MS: ${TTS_RETRY_BACKOFF_MS:-5000}
+      # How often each SSE status stream re-reads its job row.
+      SSE_POLL_INTERVAL_MS: ${SSE_POLL_INTERVAL_MS:-1000}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+  worker:
+    build: ./worker
+    environment:
+      REDIS_URL: redis://redis:6379
+      DATABASE_URL: postgresql://tts:tts@postgres:5432/tts
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      S3_BUCKET: tts-audio
+      # fake: instant synthetic WAVs, demonstrates the full pipeline.
+      # indicf5: real inference; gated model, needs HF_TOKEN (see docs).
+      TTS_ENGINE: ${TTS_ENGINE:-fake}
+      TTS_DEVICE: ${TTS_DEVICE:-auto}
+      HF_TOKEN: ${HF_TOKEN:-}
+      # Jobs running longer than this are marked FAILED with code TIMEOUT.
+      # Sized for CPU inference; lower it on GPU hosts.
+      TTS_JOB_TIMEOUT_SECONDS: ${TTS_JOB_TIMEOUT_SECONDS:-300}
+      # Fake engine only: simulated per-job latency, used by the load test
+      # to make queue backlog observable (see docs/load-test.md).
+      TTS_FAKE_DELAY_SECONDS: ${TTS_FAKE_DELAY_SECONDS:-0}
+    volumes:
+      # Model weights survive container rebuilds; first indicf5 start
+      # downloads ~2 GB into this volume, later starts reuse it.
+      - model-cache:/models
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: tts
+      POSTGRES_PASSWORD: tts
+      POSTGRES_DB: tts
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tts -d tts"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  # Optional monitoring stack: docker compose --profile monitoring up
+  prometheus:
+    image: prom/prometheus:latest
+    profiles: ["monitoring"]
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      - gateway
+
+  grafana:
+    image: grafana/grafana:latest
+    profiles: ["monitoring"]
+    ports:
+      - "${GRAFANA_PORT:-3001}:3000"
+    environment:
+      # Demo credentials; anonymous read access so the dashboard is one
+      # click away. Lock this down anywhere beyond a local demo.
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+
+volumes:
+  pgdata:
+  minio-data:
+  model-cache:

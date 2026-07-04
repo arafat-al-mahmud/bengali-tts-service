@@ -10,12 +10,12 @@ Covers user stories 8-13, 15, 17, 18, and the ownership half of 22.
 
 ## Acceptance criteria
 
-- [ ] Submission returns 202 with job id and status URL; invalid text (empty, oversized, non-Bengali-dominant) returns 422 with distinct machine-readable codes
-- [ ] Text with digits, punctuation, and occasional loanwords is accepted; predominantly non-Bengali text is rejected
-- [ ] Worker consumes via the official BullMQ Python client, processes one job at a time, uploads to MinIO, and transitions the Job row QUEUED, ACTIVE, COMPLETED
-- [ ] Audio endpoint streams a playable WAV with correct content type for the owner, 404 for any other user, and a conflict response before completion
-- [ ] Integration tests run the full pipeline against real Postgres, Redis, and MinIO with the fake engine (no BullMQ mocking)
-- [ ] Worker pytest suite asserts job completion, MinIO object presence, and final database state
+- [x] Submission returns 202 with job id and status URL; invalid text (empty, oversized, non-Bengali-dominant) returns 422 with distinct machine-readable codes
+- [x] Text with digits, punctuation, and occasional loanwords is accepted; predominantly non-Bengali text is rejected
+- [x] Worker consumes via the official BullMQ Python client, processes one job at a time, uploads to MinIO, and transitions the Job row QUEUED, ACTIVE, COMPLETED
+- [x] Audio endpoint streams a playable WAV with correct content type for the owner, 404 for any other user, and a conflict response before completion
+- [x] Integration tests run the full pipeline against real Postgres, Redis, and MinIO with the fake engine (no BullMQ mocking)
+- [x] Worker pytest suite asserts job completion, MinIO object presence, and final database state
 
 ## Blocked by
 

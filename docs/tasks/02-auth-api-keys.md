@@ -10,12 +10,12 @@ Covers user stories 1-7 from the PRD.
 
 ## Acceptance criteria
 
-- [ ] Registration validates input (zod), rejects duplicate email with a machine-readable error code, and never returns the password hash
-- [ ] Key creation returns the full key exactly once; subsequent listings show only prefix and metadata
-- [ ] Database stores only the key hash, enforced by a unique index; the raw key appears nowhere in the database or logs
-- [ ] Revoked and unknown keys receive 401 with distinct machine-readable codes
-- [ ] A user can hold multiple active keys; revoking one leaves the others working
-- [ ] Supertest integration tests cover the full lifecycle: register, create key, authenticate, list, revoke, 401 after revocation
+- [x] Registration validates input (zod), rejects duplicate email with a machine-readable error code, and never returns the password hash
+- [x] Key creation returns the full key exactly once; subsequent listings show only prefix and metadata
+- [x] Database stores only the key hash, enforced by a unique index; the raw key appears nowhere in the database or logs
+- [x] Revoked and unknown keys receive 401 with distinct machine-readable codes
+- [x] A user can hold multiple active keys; revoking one leaves the others working
+- [x] Supertest integration tests cover the full lifecycle: register, create key, authenticate, list, revoke, 401 after revocation
 
 ## Blocked by
 

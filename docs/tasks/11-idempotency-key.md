@@ -10,11 +10,11 @@ Covers user story 14.
 
 ## Acceptance criteria
 
-- [ ] Same user, same key, same payload: second submission returns the original job id without enqueueing a second job
-- [ ] Same user, same key, different payload: rejected with a machine-readable conflict error
-- [ ] Different users with the same key value do not collide
-- [ ] Uniqueness enforced by a database constraint, not application-level checks alone
-- [ ] Integration tests cover replay, conflict, and cross-user independence
+- [x] Same user, same key, same payload: second submission returns the original job id without enqueueing a second job
+- [x] Same user, same key, different payload: rejected with a machine-readable conflict error
+- [x] Different users with the same key value do not collide
+- [x] Uniqueness enforced by a database constraint, not application-level checks alone
+- [x] Integration tests cover replay, conflict, and cross-user independence
 
 ## Blocked by
 
