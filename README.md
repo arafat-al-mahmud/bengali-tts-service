@@ -366,6 +366,10 @@ The index scan touches 22 rows (one page plus the has-more probe) regardless of 
 - **Prometheus metrics** at `/metrics`: queue depth, jobs by status, synthesis duration histogram, backpressure rejections by gate, HTTP latency by route.
 - **Grafana dashboard** provisioned automatically under the `monitoring` compose profile.
 
+Captured live during the committed load test: queue depth climbing to capacity and draining, each backpressure gate rejecting in turn, and the request-rate and latency panels staying flat while it happens.
+
+![Grafana dashboard during the load test](docs/images/dashboard.png)
+
 Details, metric reference, and the log-tracing recipe: [docs/observability.md](docs/observability.md).
 
 ## Testing
