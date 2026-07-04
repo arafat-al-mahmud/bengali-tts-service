@@ -14,6 +14,11 @@ const submitSchema = z.object({
   text: z.string(),
 });
 
+const historyQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  cursor: z.uuid().optional(),
+});
+
 function serializeJob(job: Job) {
   return {
     id: job.id,
@@ -54,6 +59,28 @@ export function jobsRouter(deps: AppDeps): Router {
       status: job.status,
       statusUrl: `/v1/jobs/${job.id}`,
       pollIntervalMs: deps.config.POLL_INTERVAL_MS,
+    });
+  });
+
+  router.get('/v1/jobs', auth, async (req, res) => {
+    const user = requireUser(req);
+    const { limit, cursor } = validate(historyQuerySchema, req.query);
+
+    // Cursor pagination stays correct while new jobs arrive, unlike
+    // offsets. Ordering matches the (user_id, created_at desc) index;
+    // id breaks ties within a timestamp. A cursor that is not one of the
+    // caller's own jobs positions nowhere and yields an empty page.
+    const rows = await deps.prisma.job.findMany({
+      where: { userId: user.id },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+      ...(cursor !== undefined && { cursor: { id: cursor }, skip: 1 }),
+    });
+
+    const page = rows.slice(0, limit);
+    res.json({
+      jobs: page.map(serializeJob),
+      nextCursor: rows.length > limit ? (page.at(-1)?.id ?? null) : null,
     });
   });
 

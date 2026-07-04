@@ -38,6 +38,7 @@ model Job {
   startedAt    DateTime? @map("started_at")
   completedAt  DateTime? @map("completed_at")
 
+  @@index([userId, createdAt(sort: Desc)])
   @@map("jobs")
 }
 
