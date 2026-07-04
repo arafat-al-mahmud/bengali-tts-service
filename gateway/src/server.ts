@@ -4,6 +4,7 @@ import { loadConfig } from './config.js';
 import { createPrisma } from './lib/prisma.js';
 import { createTtsQueue } from './lib/queue.js';
 import { createRedis } from './lib/redis.js';
+import { gracefulShutdown } from './lib/shutdown.js';
 import { createS3, ensureBucket } from './lib/storage.js';
 
 const config = loadConfig();
@@ -24,18 +25,17 @@ const server = app.listen(config.PORT, () => {
 
 function shutdown(signal: string): void {
   logger.info({ signal }, 'shutting down');
-  server.close(() => {
-    void (async () => {
+  gracefulShutdown(
+    server,
+    async () => {
       await queue.close();
       await prisma.$disconnect();
       redis.disconnect();
       s3.destroy();
       logger.info('shutdown complete');
-      process.exit(0);
-    })();
-  });
-  // Failsafe: never hang forever on stuck connections.
-  setTimeout(() => process.exit(1), 10_000).unref();
+    },
+    (code) => process.exit(code),
+  );
 }
 
 process.on('SIGTERM', () => shutdown('SIGTERM'));

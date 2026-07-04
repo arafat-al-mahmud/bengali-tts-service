@@ -23,7 +23,9 @@ async def run() -> None:
     s3 = storage.create_s3(settings)
     engine = create_engine(settings)
 
-    processor = Processor(conn, s3, engine, settings.s3_bucket)
+    processor = Processor(
+        conn, s3, engine, settings.s3_bucket, timeout_seconds=settings.job_timeout_seconds
+    )
 
     worker = Worker(
         settings.queue_name,
@@ -35,6 +37,9 @@ async def run() -> None:
             "concurrency": 1,
         },
     )
+    # Over-stalled jobs are failed by BullMQ without the processor running;
+    # this listener keeps the database row in sync for that path.
+    worker.on("failed", processor.record_bypassed_failure)
     log.info("worker ready", engine=settings.tts_engine, queue=settings.queue_name)
 
     shutdown = asyncio.Event()

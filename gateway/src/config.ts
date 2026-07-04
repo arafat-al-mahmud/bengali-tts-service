@@ -16,6 +16,9 @@ const configSchema = z.object({
   TTS_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(30),
   TTS_PENDING_CAP: z.coerce.number().int().positive().default(10),
   TTS_QUEUE_CAPACITY: z.coerce.number().int().positive().default(100),
+  // Total delivery attempts per job (2 = one retry) and the base backoff.
+  TTS_JOB_ATTEMPTS: z.coerce.number().int().positive().default(2),
+  TTS_RETRY_BACKOFF_MS: z.coerce.number().int().positive().default(5000),
 });
 
 export type Config = z.infer<typeof configSchema>;

@@ -76,6 +76,11 @@ describe('POST /v1/tts', () => {
 
     const queued = await ctx.deps.queue.getJob(body.jobId);
     expect(queued?.data).toEqual({ jobId: body.jobId });
+    // One retry with backoff for transient inference failures.
+    expect(queued?.opts).toMatchObject({
+      attempts: 2,
+      backoff: { type: 'exponential', delay: 5000 },
+    });
   });
 
   it('requires an API key', async () => {

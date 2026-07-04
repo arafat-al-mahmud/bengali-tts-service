@@ -93,7 +93,10 @@ export function jobsRouter(deps: AppDeps): Router {
       });
     });
     try {
-      await enqueueTtsJob(deps.queue, job.id);
+      await enqueueTtsJob(deps.queue, job.id, {
+        attempts: deps.config.TTS_JOB_ATTEMPTS,
+        backoffMs: deps.config.TTS_RETRY_BACKOFF_MS,
+      });
     } catch (err) {
       // A job row without a queue entry would wait forever; better to fail
       // the submission outright and let the client retry.

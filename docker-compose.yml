@@ -19,6 +19,9 @@ services:
       TTS_RATE_LIMIT_PER_MINUTE: ${TTS_RATE_LIMIT_PER_MINUTE:-30}
       TTS_PENDING_CAP: ${TTS_PENDING_CAP:-10}
       TTS_QUEUE_CAPACITY: ${TTS_QUEUE_CAPACITY:-100}
+      # One retry with exponential backoff for transient inference failures.
+      TTS_JOB_ATTEMPTS: ${TTS_JOB_ATTEMPTS:-2}
+      TTS_RETRY_BACKOFF_MS: ${TTS_RETRY_BACKOFF_MS:-5000}
     depends_on:
       postgres:
         condition: service_healthy
@@ -41,6 +44,9 @@ services:
       TTS_ENGINE: ${TTS_ENGINE:-fake}
       TTS_DEVICE: ${TTS_DEVICE:-auto}
       HF_TOKEN: ${HF_TOKEN:-}
+      # Jobs running longer than this are marked FAILED with code TIMEOUT.
+      # Sized for CPU inference; lower it on GPU hosts.
+      TTS_JOB_TIMEOUT_SECONDS: ${TTS_JOB_TIMEOUT_SECONDS:-300}
     volumes:
       # Model weights survive container rebuilds; first indicf5 start
       # downloads ~2 GB into this volume, later starts reuse it.

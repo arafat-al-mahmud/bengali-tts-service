@@ -10,12 +10,12 @@ Covers user stories 16, 29-33.
 
 ## Acceptance criteria
 
-- [ ] A job exceeding the timeout lands FAILED with code TIMEOUT and remains visible in Job History
-- [ ] A transiently failing job (fake engine failure injection) succeeds on retry; a persistently failing one lands FAILED after exactly one retry
-- [ ] Killing the worker mid-job results in the job being re-queued and completed by a restarted worker, not stranded in ACTIVE
-- [ ] No stack trace or infrastructure detail ever appears in an API response; tests assert the sanitized envelope
-- [ ] SIGTERM on the gateway drains in-flight HTTP requests before exit
-- [ ] Failure-path tests run against real BullMQ semantics (no queue mocking)
+- [x] A job exceeding the timeout lands FAILED with code TIMEOUT and remains visible in Job History
+- [x] A transiently failing job (fake engine failure injection) succeeds on retry; a persistently failing one lands FAILED after exactly one retry
+- [x] Killing the worker mid-job results in the job being re-queued and completed by a restarted worker, not stranded in ACTIVE
+- [x] No stack trace or infrastructure detail ever appears in an API response; tests assert the sanitized envelope
+- [x] SIGTERM on the gateway drains in-flight HTTP requests before exit
+- [x] Failure-path tests run against real BullMQ semantics (no queue mocking)
 
 ## Blocked by
 

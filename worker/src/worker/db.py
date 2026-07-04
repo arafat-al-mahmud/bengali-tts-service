@@ -32,6 +32,11 @@ def mark_active(conn: psycopg.Connection, job_id: str) -> None:
     )
 
 
+def mark_queued(conn: psycopg.Connection, job_id: str) -> None:
+    """Reset to QUEUED while BullMQ waits out a retry backoff."""
+    conn.execute("UPDATE jobs SET status = 'QUEUED' WHERE id = %s", (job_id,))
+
+
 def mark_completed(conn: psycopg.Connection, job_id: str, audio_key: str) -> None:
     conn.execute(
         "UPDATE jobs SET status = 'COMPLETED', audio_key = %s, completed_at = now() WHERE id = %s",
