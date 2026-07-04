@@ -47,6 +47,9 @@ services:
       # Jobs running longer than this are marked FAILED with code TIMEOUT.
       # Sized for CPU inference; lower it on GPU hosts.
       TTS_JOB_TIMEOUT_SECONDS: ${TTS_JOB_TIMEOUT_SECONDS:-300}
+      # Fake engine only: simulated per-job latency, used by the load test
+      # to make queue backlog observable (see docs/load-test.md).
+      TTS_FAKE_DELAY_SECONDS: ${TTS_FAKE_DELAY_SECONDS:-0}
     volumes:
       # Model weights survive container rebuilds; first indicf5 start
       # downloads ~2 GB into this volume, later starts reuse it.

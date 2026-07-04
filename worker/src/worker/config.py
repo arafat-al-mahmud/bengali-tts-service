@@ -15,6 +15,7 @@ class Settings:
     tts_device: str
     queue_name: str
     job_timeout_seconds: float
+    fake_delay_seconds: float
 
 
 _REQUIRED = ("REDIS_URL", "DATABASE_URL", "S3_ENDPOINT", "S3_ACCESS_KEY", "S3_SECRET_KEY")
@@ -36,4 +37,7 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         tts_device=env.get("TTS_DEVICE", "auto"),
         queue_name=env.get("TTS_QUEUE_NAME", "tts"),
         job_timeout_seconds=float(env.get("TTS_JOB_TIMEOUT_SECONDS", "300")),
+        # Fake engine only: simulated inference latency so load tests can
+        # observe queue backlog without real synthesis.
+        fake_delay_seconds=float(env.get("TTS_FAKE_DELAY_SECONDS", "0")),
     )

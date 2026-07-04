@@ -19,6 +19,7 @@ RETRY_OPTS = {"attempts": 2, "backoff": {"type": "fixed", "delay": 200}}
 
 class CountingEngine(FakeEngine):
     def __init__(self):
+        super().__init__()
         self.calls = 0
 
     def synthesize(self, text: str) -> bytes:

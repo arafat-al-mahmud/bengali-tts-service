@@ -1,6 +1,7 @@
 import io
 import math
 import struct
+import time
 import wave
 
 _SAMPLE_RATE = 22050
@@ -10,9 +11,19 @@ _AMPLITUDE = 0.2
 
 
 class FakeEngine:
-    """Instant stand-in for real inference: a short, valid, playable WAV."""
+    """Instant stand-in for real inference: a short, valid, playable WAV.
+
+    An optional delay simulates real inference latency, which is what makes
+    queue backlog and backpressure observable under load tests without
+    paying for actual synthesis.
+    """
+
+    def __init__(self, delay_seconds: float = 0.0) -> None:
+        self._delay_seconds = delay_seconds
 
     def synthesize(self, text: str) -> bytes:
+        if self._delay_seconds > 0:
+            time.sleep(self._delay_seconds)
         buffer = io.BytesIO()
         with wave.open(buffer, "wb") as wav:
             wav.setnchannels(1)

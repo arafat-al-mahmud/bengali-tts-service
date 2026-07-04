@@ -10,10 +10,10 @@ Covers user story 38.
 
 ## Acceptance criteria
 
-- [ ] k6 script runs against the compose stack with the fake engine and a documented one-command invocation
-- [ ] Scenario exercises all three Backpressure Gates and records the distribution of 202/429/503 responses
-- [ ] Results are committed: request rates, rejection counts per gate, queue drain behavior, and a short interpretation
-- [ ] Script is deterministic enough to re-run: seeded users and keys via a setup step
+- [x] k6 script runs against the compose stack with the fake engine and a documented one-command invocation
+- [x] Scenario exercises all three Backpressure Gates and records the distribution of 202/429/503 responses
+- [x] Results are committed: request rates, rejection counts per gate, queue drain behavior, and a short interpretation
+- [x] Script is deterministic enough to re-run: seeded users and keys via a setup step
 
 ## Blocked by
 
