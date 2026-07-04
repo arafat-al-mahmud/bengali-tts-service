@@ -35,6 +35,11 @@ class Processor:
     async def process(self, job: Any, _token: str) -> dict[str, str]:
         job_id = job.data["jobId"]
         log = self._log.bind(job_id=job_id)
+        # The submission's request id, when present, so one grep follows a
+        # job from the gateway through synthesis.
+        correlation_id = job.data.get("correlationId")
+        if correlation_id:
+            log = log.bind(correlation_id=correlation_id)
 
         row = db.fetch_job(self._conn, job_id)
         if row is None:

@@ -50,6 +50,7 @@ export function jobsRouter(deps: AppDeps): Router {
       deps.config.TTS_RATE_LIMIT_PER_MINUTE,
     );
     if (!rate.allowed) {
+      deps.metrics.gateRejections.inc({ gate: 'rate_limit' });
       res.setHeader('Retry-After', String(rate.retryAfterSeconds));
       throw new ApiError(429, 'RATE_LIMITED', 'Request rate limit exceeded; retry later');
     }
@@ -68,6 +69,7 @@ export function jobsRouter(deps: AppDeps): Router {
         where: { userId: user.id, status: { in: ['QUEUED', 'ACTIVE'] } },
       });
       if (pending >= deps.config.TTS_PENDING_CAP) {
+        deps.metrics.gateRejections.inc({ gate: 'pending_cap' });
         throw new ApiError(
           429,
           'PENDING_CAP_EXCEEDED',
@@ -85,6 +87,7 @@ export function jobsRouter(deps: AppDeps): Router {
       const counts = await deps.queue.getJobCounts('waiting', 'active', 'delayed', 'prioritized');
       const depth = Object.values(counts).reduce((sum, n) => sum + n, 0);
       if (depth >= deps.config.TTS_QUEUE_CAPACITY) {
+        deps.metrics.gateRejections.inc({ gate: 'queue_full' });
         throw new ApiError(503, 'QUEUE_FULL', 'Service is at capacity; retry later');
       }
 
@@ -93,10 +96,15 @@ export function jobsRouter(deps: AppDeps): Router {
       });
     });
     try {
-      await enqueueTtsJob(deps.queue, job.id, {
-        attempts: deps.config.TTS_JOB_ATTEMPTS,
-        backoffMs: deps.config.TTS_RETRY_BACKOFF_MS,
-      });
+      await enqueueTtsJob(
+        deps.queue,
+        job.id,
+        {
+          attempts: deps.config.TTS_JOB_ATTEMPTS,
+          backoffMs: deps.config.TTS_RETRY_BACKOFF_MS,
+        },
+        typeof req.id === 'string' ? req.id : undefined,
+      );
     } catch (err) {
       // A job row without a queue entry would wait forever; better to fail
       // the submission outright and let the client retry.

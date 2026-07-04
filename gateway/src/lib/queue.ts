@@ -3,6 +3,8 @@ import type { Redis } from './redis.js';
 
 export interface TtsJobPayload {
   jobId: string;
+  /** Request id of the submission; ties worker logs to gateway logs. */
+  correlationId?: string;
 }
 
 export type TtsQueue = Queue<TtsJobPayload>;
@@ -20,12 +22,13 @@ export async function enqueueTtsJob(
   queue: TtsQueue,
   jobId: string,
   retry: RetryPolicy,
+  correlationId?: string,
 ): Promise<void> {
   // The database id doubles as the BullMQ job id, so a duplicate enqueue
   // for the same job is a no-op instead of a second synthesis.
   await queue.add(
     'synthesize',
-    { jobId },
+    { jobId, ...(correlationId !== undefined && { correlationId }) },
     {
       jobId,
       attempts: retry.attempts,

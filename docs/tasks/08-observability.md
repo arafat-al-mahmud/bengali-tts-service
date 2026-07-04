@@ -10,11 +10,11 @@ Covers user stories 34-36.
 
 ## Acceptance criteria
 
-- [ ] Every log line in both services is JSON with a correlation id; a submitted Job's correlation id appears in gateway and worker logs for the same request
-- [ ] Metrics endpoint exposes queue depth, job duration histogram, jobs-by-status, HTTP latency, and per-gate rejection counters
-- [ ] Metrics endpoint exposure choice (internal, unauthenticated) is documented
-- [ ] Raw API keys and password material never appear in logs; a test guards this
-- [ ] Integration test scrapes the metrics endpoint and finds the expected metric names after driving traffic
+- [x] Every log line in both services is JSON with a correlation id; a submitted Job's correlation id appears in gateway and worker logs for the same request
+- [x] Metrics endpoint exposes queue depth, job duration histogram, jobs-by-status, HTTP latency, and per-gate rejection counters
+- [x] Metrics endpoint exposure choice (internal, unauthenticated) is documented
+- [x] Raw API keys and password material never appear in logs; a test guards this
+- [x] Integration test scrapes the metrics endpoint and finds the expected metric names after driving traffic
 
 ## Blocked by
 

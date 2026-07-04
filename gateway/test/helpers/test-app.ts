@@ -1,6 +1,8 @@
+import { pino, type Logger } from 'pino';
 import { inject } from 'vitest';
 import { createApp, type AppDeps } from '../../src/app.js';
 import { loadConfig } from '../../src/config.js';
+import { createMetrics } from '../../src/lib/metrics.js';
 import { createPrisma } from '../../src/lib/prisma.js';
 import { createTtsQueue } from '../../src/lib/queue.js';
 import { createRedis } from '../../src/lib/redis.js';
@@ -14,6 +16,7 @@ export interface TestContext {
 
 export async function createTestContext(
   overrides: Record<string, string> = {},
+  extras: { logger?: Logger } = {},
 ): Promise<TestContext> {
   const config = loadConfig({
     ...process.env,
@@ -32,7 +35,9 @@ export async function createTestContext(
   const queue = createTtsQueue(redis, config.TTS_QUEUE_NAME);
   await ensureBucket(s3, config.S3_BUCKET);
 
-  const deps: AppDeps = { config, prisma, redis, s3, queue };
+  const logger = extras.logger ?? pino({ level: 'silent' });
+  const metrics = createMetrics(prisma, queue);
+  const deps: AppDeps = { config, prisma, redis, s3, queue, logger, metrics };
   return {
     app: createApp(deps),
     deps,

@@ -75,7 +75,10 @@ describe('POST /v1/tts', () => {
     expect(row).toMatchObject({ status: 'QUEUED', userId: user.userId, inputText: BENGALI });
 
     const queued = await ctx.deps.queue.getJob(body.jobId);
-    expect(queued?.data).toEqual({ jobId: body.jobId });
+    expect(queued?.data).toEqual({
+      jobId: body.jobId,
+      correlationId: res.headers['x-request-id'],
+    });
     // One retry with backoff for transient inference failures.
     expect(queued?.opts).toMatchObject({
       attempts: 2,
