@@ -1,5 +1,5 @@
 import { GetObjectCommand } from '@aws-sdk/client-s3';
-import { Router } from 'express';
+import { Router, type Response } from 'express';
 import type { Readable } from 'node:stream';
 import { z } from 'zod';
 import type { AppDeps } from '../app.js';
@@ -9,7 +9,7 @@ import { takeRateLimitToken } from '../lib/rate-limit.js';
 import { validateTtsText } from '../lib/tts-text.js';
 import { requireParam, validate } from '../lib/validate.js';
 import { apiKeyAuth, requireUser } from '../middleware/auth.js';
-import type { Job } from '../generated/prisma/client.js';
+import { Prisma, type Job } from '../generated/prisma/client.js';
 
 const submitSchema = z.object({
   text: z.string(),
@@ -34,12 +34,54 @@ function serializeJob(job: Job) {
   };
 }
 
+function readIdempotencyKey(req: { headers: Record<string, unknown> }): string | undefined {
+  const raw = req.headers['idempotency-key'];
+  if (raw === undefined) return undefined;
+  if (typeof raw !== 'string' || raw.length === 0 || raw.length > 255) {
+    throw new ApiError(422, 'VALIDATION_ERROR', 'Idempotency-Key must be 1-255 characters');
+  }
+  return raw;
+}
+
 export function jobsRouter(deps: AppDeps): Router {
   const router = Router();
   const auth = apiKeyAuth(deps.prisma);
 
+  // A retry with the original payload replays the stored job; the same key
+  // with a different payload is a client bug, called out as a conflict.
+  function respondForIdempotentRetry(res: Response, job: Job, body: unknown): void {
+    const { text } = validate(submitSchema, body);
+    if (text !== job.inputText) {
+      throw new ApiError(
+        409,
+        'IDEMPOTENCY_CONFLICT',
+        'This Idempotency-Key was already used with a different payload',
+      );
+    }
+    res.status(200).json({
+      jobId: job.id,
+      status: job.status,
+      statusUrl: `/v1/jobs/${job.id}`,
+      pollIntervalMs: deps.config.POLL_INTERVAL_MS,
+    });
+  }
+
   router.post('/v1/tts', auth, async (req, res) => {
     const user = requireUser(req);
+    const idempotencyKey = readIdempotencyKey(req);
+
+    // Replay before the gates: a client retrying a submission it never got
+    // an answer for must find its job even while the queue is full or its
+    // bucket is empty. That safety is the whole point of the key.
+    if (idempotencyKey !== undefined) {
+      const existing = await deps.prisma.job.findFirst({
+        where: { userId: user.id, idempotencyKey },
+      });
+      if (existing) {
+        respondForIdempotentRetry(res, existing, req.body);
+        return;
+      }
+    }
 
     // Backpressure gates, in order, each with a distinct rejection so
     // clients know whether to slow down, wait for running jobs, or back
@@ -62,39 +104,69 @@ export function jobsRouter(deps: AppDeps): Router {
     // concurrent submissions all reads the same count and lands the whole
     // burst over the cap. A per-user advisory lock serializes only this
     // user's submissions; everyone else proceeds in parallel.
-    const job = await deps.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${user.id}))`;
+    let job: Job;
+    try {
+      job = await deps.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${user.id}))`;
 
-      const pending = await tx.job.count({
-        where: { userId: user.id, status: { in: ['QUEUED', 'ACTIVE'] } },
-      });
-      if (pending >= deps.config.TTS_PENDING_CAP) {
-        deps.metrics.gateRejections.inc({ gate: 'pending_cap' });
-        throw new ApiError(
-          429,
-          'PENDING_CAP_EXCEEDED',
-          'Too many unfinished jobs; wait for them to complete instead of retrying',
+        const pending = await tx.job.count({
+          where: { userId: user.id, status: { in: ['QUEUED', 'ACTIVE'] } },
+        });
+        if (pending >= deps.config.TTS_PENDING_CAP) {
+          deps.metrics.gateRejections.inc({ gate: 'pending_cap' });
+          throw new ApiError(
+            429,
+            'PENDING_CAP_EXCEEDED',
+            'Too many unfinished jobs; wait for them to complete instead of retrying',
+          );
+        }
+
+        // Unlike the per-user cap above, this global check is check-then-act:
+        // submissions from different users hold different advisory locks, so
+        // two of them can read the same depth and both land. Exact enforcement
+        // would take a global lock serializing every submission. The overshoot
+        // is bounded by the connection pool (only that many transactions sit
+        // between this read and their insert at once), and the gate is load
+        // shedding, not a contract, so approximate is the right trade.
+        const counts = await deps.queue.getJobCounts(
+          'waiting',
+          'active',
+          'delayed',
+          'prioritized',
         );
-      }
+        const depth = Object.values(counts).reduce((sum, n) => sum + n, 0);
+        if (depth >= deps.config.TTS_QUEUE_CAPACITY) {
+          deps.metrics.gateRejections.inc({ gate: 'queue_full' });
+          throw new ApiError(503, 'QUEUE_FULL', 'Service is at capacity; retry later');
+        }
 
-      // Unlike the per-user cap above, this global check is check-then-act:
-      // submissions from different users hold different advisory locks, so
-      // two of them can read the same depth and both land. Exact enforcement
-      // would take a global lock serializing every submission. The overshoot
-      // is bounded by the connection pool (only that many transactions sit
-      // between this read and their insert at once), and the gate is load
-      // shedding, not a contract, so approximate is the right trade.
-      const counts = await deps.queue.getJobCounts('waiting', 'active', 'delayed', 'prioritized');
-      const depth = Object.values(counts).reduce((sum, n) => sum + n, 0);
-      if (depth >= deps.config.TTS_QUEUE_CAPACITY) {
-        deps.metrics.gateRejections.inc({ gate: 'queue_full' });
-        throw new ApiError(503, 'QUEUE_FULL', 'Service is at capacity; retry later');
-      }
-
-      return tx.job.create({
-        data: { userId: user.id, inputText: text },
+        return tx.job.create({
+          data: {
+            userId: user.id,
+            inputText: text,
+            ...(idempotencyKey !== undefined && { idempotencyKey }),
+          },
+        });
       });
-    });
+    } catch (err) {
+      // Two same-key submissions racing past the replay check: the unique
+      // constraint lets exactly one insert win; the loser is answered from
+      // the winner's row (replay or conflict).
+      if (
+        idempotencyKey !== undefined &&
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        const winner = await deps.prisma.job.findFirst({
+          where: { userId: user.id, idempotencyKey },
+        });
+        if (winner) {
+          respondForIdempotentRetry(res, winner, req.body);
+          return;
+        }
+      }
+      throw err;
+    }
     try {
       await enqueueTtsJob(
         deps.queue,

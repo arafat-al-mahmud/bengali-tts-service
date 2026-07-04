@@ -26,18 +26,21 @@ enum JobStatus {
 }
 
 model Job {
-  id           String    @id @default(uuid())
-  userId       String    @map("user_id")
-  user         User      @relation(fields: [userId], references: [id])
-  status       JobStatus @default(QUEUED)
-  inputText    String    @map("input_text")
-  audioKey     String?   @map("audio_key")
-  errorCode    String?   @map("error_code")
-  errorMessage String?   @map("error_message")
-  createdAt    DateTime  @default(now()) @map("created_at")
-  startedAt    DateTime? @map("started_at")
-  completedAt  DateTime? @map("completed_at")
+  id             String    @id @default(uuid())
+  userId         String    @map("user_id")
+  user           User      @relation(fields: [userId], references: [id])
+  status         JobStatus @default(QUEUED)
+  inputText      String    @map("input_text")
+  // Client-supplied retry token; scoped per user, NULLs never collide.
+  idempotencyKey String?   @map("idempotency_key")
+  audioKey       String?   @map("audio_key")
+  errorCode      String?   @map("error_code")
+  errorMessage   String?   @map("error_message")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  startedAt      DateTime? @map("started_at")
+  completedAt    DateTime? @map("completed_at")
 
+  @@unique([userId, idempotencyKey])
   @@index([userId, createdAt(sort: Desc)])
   @@map("jobs")
 }
