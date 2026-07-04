@@ -1,0 +1,3 @@
+# PostgreSQL for users, API keys, and job records
+
+Job records go through strict state transitions (QUEUED → ACTIVE → COMPLETED/FAILED) where ACID guarantees and row-level constraints prevent inconsistent states. The schema is small and stable (three tables), and relational constraints - a foreign key from job to user, a unique index on the hashed API key - enforce per-user isolation at the storage layer rather than in application code. Prisma keeps the data model declarative and the generated SQL migrations reviewable, and queue state (which lives in Redis) is deliberately kept out of the database: Postgres holds the durable record, Redis holds the transient work.
