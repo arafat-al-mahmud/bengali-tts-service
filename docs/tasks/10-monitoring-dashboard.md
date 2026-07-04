@@ -10,10 +10,10 @@ Covers user story 37.
 
 ## Acceptance criteria
 
-- [ ] `docker compose --profile monitoring up` adds Prometheus and Grafana with zero manual configuration
-- [ ] Grafana auto-provisions the datasource and dashboard from committed config
-- [ ] Dashboard shows queue depth, job duration percentiles, jobs by status, and rejection rates per gate
-- [ ] Docs include a dashboard screenshot captured during a load-test run
+- [x] `docker compose --profile monitoring up` adds Prometheus and Grafana with zero manual configuration
+- [x] Grafana auto-provisions the datasource and dashboard from committed config
+- [x] Dashboard shows queue depth, job duration percentiles, jobs by status, and rejection rates per gate
+- [x] Docs include a dashboard screenshot captured during a load-test run
 
 ## Blocked by
 

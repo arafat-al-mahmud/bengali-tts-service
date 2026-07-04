@@ -98,6 +98,32 @@ services:
       timeout: 3s
       retries: 15
 
+  # Optional monitoring stack: docker compose --profile monitoring up
+  prometheus:
+    image: prom/prometheus:latest
+    profiles: ["monitoring"]
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      - gateway
+
+  grafana:
+    image: grafana/grafana:latest
+    profiles: ["monitoring"]
+    ports:
+      - "${GRAFANA_PORT:-3001}:3000"
+    environment:
+      # Demo credentials; anonymous read access so the dashboard is one
+      # click away. Lock this down anywhere beyond a local demo.
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+
 volumes:
   pgdata:
   minio-data:

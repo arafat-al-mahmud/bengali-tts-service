@@ -33,6 +33,27 @@ reach the log stream. A test asserts this.
 | `tts_gate_rejections_total{gate}` | counter | Submissions rejected per backpressure gate (`rate_limit`, `pending_cap`, `queue_full`) |
 | `http_request_duration_seconds{method,route,status}` | histogram | HTTP latency, labeled by route pattern (bounded cardinality) |
 
+## Dashboard
+
+Prometheus and Grafana ship behind an optional compose profile:
+
+```bash
+docker compose --profile monitoring up -d
+```
+
+Prometheus scrapes the gateway every 5 seconds (it is not published on a
+host port; only Grafana is). Grafana auto-provisions the datasource and
+the "Bengali TTS Service" dashboard from committed config in
+`monitoring/`, reachable at <http://localhost:3001/d/tts> with anonymous
+view access (admin/admin to edit). Panels: queue depth, rejections per
+gate, jobs by status, job duration percentiles, HTTP request rates by
+status, and p95 latency by route.
+
+Captured during the documented load-test run (see
+[load-test.md](./load-test.md)):
+
+![Grafana dashboard during the load test](./images/dashboard.png)
+
 ### Exposure choice
 
 The endpoint is deliberately **unauthenticated**: Prometheus scrapers do
