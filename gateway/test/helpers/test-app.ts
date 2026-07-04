@@ -12,7 +12,9 @@ export interface TestContext {
   close: () => Promise<void>;
 }
 
-export async function createTestContext(): Promise<TestContext> {
+export async function createTestContext(
+  overrides: Record<string, string> = {},
+): Promise<TestContext> {
   const config = loadConfig({
     ...process.env,
     DATABASE_URL: inject('DATABASE_URL'),
@@ -21,6 +23,7 @@ export async function createTestContext(): Promise<TestContext> {
     S3_ACCESS_KEY: inject('S3_ACCESS_KEY'),
     S3_SECRET_KEY: inject('S3_SECRET_KEY'),
     S3_BUCKET: inject('S3_BUCKET'),
+    ...overrides,
   });
 
   const prisma = createPrisma(config.DATABASE_URL);

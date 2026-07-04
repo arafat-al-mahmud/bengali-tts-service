@@ -5,6 +5,7 @@ import { z } from 'zod';
 import type { AppDeps } from '../app.js';
 import { ApiError } from '../lib/errors.js';
 import { enqueueTtsJob } from '../lib/queue.js';
+import { takeRateLimitToken } from '../lib/rate-limit.js';
 import { validateTtsText } from '../lib/tts-text.js';
 import { requireParam, validate } from '../lib/validate.js';
 import { apiKeyAuth, requireUser } from '../middleware/auth.js';
@@ -39,11 +40,57 @@ export function jobsRouter(deps: AppDeps): Router {
 
   router.post('/v1/tts', auth, async (req, res) => {
     const user = requireUser(req);
+
+    // Backpressure gates, in order, each with a distinct rejection so
+    // clients know whether to slow down, wait for running jobs, or back
+    // off entirely. All fire before any Job row or queue entry exists.
+    const rate = await takeRateLimitToken(
+      deps.redis,
+      user.id,
+      deps.config.TTS_RATE_LIMIT_PER_MINUTE,
+    );
+    if (!rate.allowed) {
+      res.setHeader('Retry-After', String(rate.retryAfterSeconds));
+      throw new ApiError(429, 'RATE_LIMITED', 'Request rate limit exceeded; retry later');
+    }
+
     const { text } = validate(submitSchema, req.body);
     validateTtsText(text, deps.config.TTS_MAX_TEXT_LENGTH);
 
-    const job = await deps.prisma.job.create({
-      data: { userId: user.id, inputText: text },
+    // The pending count and the insert must act as one unit, or a burst of
+    // concurrent submissions all reads the same count and lands the whole
+    // burst over the cap. A per-user advisory lock serializes only this
+    // user's submissions; everyone else proceeds in parallel.
+    const job = await deps.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${user.id}))`;
+
+      const pending = await tx.job.count({
+        where: { userId: user.id, status: { in: ['QUEUED', 'ACTIVE'] } },
+      });
+      if (pending >= deps.config.TTS_PENDING_CAP) {
+        throw new ApiError(
+          429,
+          'PENDING_CAP_EXCEEDED',
+          'Too many unfinished jobs; wait for them to complete instead of retrying',
+        );
+      }
+
+      // Unlike the per-user cap above, this global check is check-then-act:
+      // submissions from different users hold different advisory locks, so
+      // two of them can read the same depth and both land. Exact enforcement
+      // would take a global lock serializing every submission. The overshoot
+      // is bounded by the connection pool (only that many transactions sit
+      // between this read and their insert at once), and the gate is load
+      // shedding, not a contract, so approximate is the right trade.
+      const counts = await deps.queue.getJobCounts('waiting', 'active', 'delayed', 'prioritized');
+      const depth = Object.values(counts).reduce((sum, n) => sum + n, 0);
+      if (depth >= deps.config.TTS_QUEUE_CAPACITY) {
+        throw new ApiError(503, 'QUEUE_FULL', 'Service is at capacity; retry later');
+      }
+
+      return tx.job.create({
+        data: { userId: user.id, inputText: text },
+      });
     });
     try {
       await enqueueTtsJob(deps.queue, job.id);

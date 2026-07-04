@@ -12,6 +12,13 @@ services:
       S3_SECRET_KEY: minioadmin
       S3_BUCKET: tts-audio
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Backpressure gates, applied to job submission in this order:
+      # per-user requests per minute (429 RATE_LIMITED + Retry-After),
+      # per-user unfinished-job cap (429 PENDING_CAP_EXCEEDED),
+      # global queue depth (503 QUEUE_FULL).
+      TTS_RATE_LIMIT_PER_MINUTE: ${TTS_RATE_LIMIT_PER_MINUTE:-30}
+      TTS_PENDING_CAP: ${TTS_PENDING_CAP:-10}
+      TTS_QUEUE_CAPACITY: ${TTS_QUEUE_CAPACITY:-100}
     depends_on:
       postgres:
         condition: service_healthy

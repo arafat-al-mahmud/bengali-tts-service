@@ -10,12 +10,12 @@ Covers user stories 24-28.
 
 ## Acceptance criteria
 
-- [ ] Exceeding the Rate Limit returns 429 with a correct Retry-After header and a machine-readable code
-- [ ] Exceeding the Pending Cap returns 429 with a different code; completing or failing a Job frees capacity
-- [ ] When global Queue Capacity is reached, all users receive 503 with a machine-readable code
-- [ ] All three limits are env-configurable and documented
-- [ ] Integration tests drive each gate to rejection independently and verify the distinct code per gate
-- [ ] Gate rejections do not create Job rows or queue entries
+- [x] Exceeding the Rate Limit returns 429 with a correct Retry-After header and a machine-readable code
+- [x] Exceeding the Pending Cap returns 429 with a different code; completing or failing a Job frees capacity
+- [x] When global Queue Capacity is reached, all users receive 503 with a machine-readable code
+- [x] All three limits are env-configurable and documented
+- [x] Integration tests drive each gate to rejection independently and verify the distinct code per gate
+- [x] Gate rejections do not create Job rows or queue entries
 
 ## Blocked by
 

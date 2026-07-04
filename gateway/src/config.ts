@@ -12,6 +12,10 @@ const configSchema = z.object({
   TTS_QUEUE_NAME: z.string().min(1).default('tts'),
   TTS_MAX_TEXT_LENGTH: z.coerce.number().int().positive().default(1000),
   POLL_INTERVAL_MS: z.coerce.number().int().positive().default(2000),
+  // Backpressure gates on job submission, checked in this order.
+  TTS_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(30),
+  TTS_PENDING_CAP: z.coerce.number().int().positive().default(10),
+  TTS_QUEUE_CAPACITY: z.coerce.number().int().positive().default(100),
 });
 
 export type Config = z.infer<typeof configSchema>;
