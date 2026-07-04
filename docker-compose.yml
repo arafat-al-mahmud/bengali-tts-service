@@ -22,6 +22,8 @@ services:
       # One retry with exponential backoff for transient inference failures.
       TTS_JOB_ATTEMPTS: ${TTS_JOB_ATTEMPTS:-2}
       TTS_RETRY_BACKOFF_MS: ${TTS_RETRY_BACKOFF_MS:-5000}
+      # How often each SSE status stream re-reads its job row.
+      SSE_POLL_INTERVAL_MS: ${SSE_POLL_INTERVAL_MS:-1000}
     depends_on:
       postgres:
         condition: service_healthy

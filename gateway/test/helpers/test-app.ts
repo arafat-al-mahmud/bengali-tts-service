@@ -6,6 +6,7 @@ import { createMetrics } from '../../src/lib/metrics.js';
 import { createPrisma } from '../../src/lib/prisma.js';
 import { createTtsQueue } from '../../src/lib/queue.js';
 import { createRedis } from '../../src/lib/redis.js';
+import { createSseHub } from '../../src/lib/sse.js';
 import { createS3, ensureBucket } from '../../src/lib/storage.js';
 
 export interface TestContext {
@@ -37,11 +38,13 @@ export async function createTestContext(
 
   const logger = extras.logger ?? pino({ level: 'silent' });
   const metrics = createMetrics(prisma, queue);
-  const deps: AppDeps = { config, prisma, redis, s3, queue, logger, metrics };
+  const sse = createSseHub();
+  const deps: AppDeps = { config, prisma, redis, s3, queue, logger, metrics, sse };
   return {
     app: createApp(deps),
     deps,
     close: async () => {
+      sse.closeAll();
       await queue.close();
       await prisma.$disconnect();
       redis.disconnect();

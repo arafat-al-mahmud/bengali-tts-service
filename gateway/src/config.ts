@@ -12,6 +12,8 @@ const configSchema = z.object({
   TTS_QUEUE_NAME: z.string().min(1).default('tts'),
   TTS_MAX_TEXT_LENGTH: z.coerce.number().int().positive().default(1000),
   POLL_INTERVAL_MS: z.coerce.number().int().positive().default(2000),
+  // How often an SSE stream re-reads its job row while waiting for a change.
+  SSE_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(1000),
   // Backpressure gates on job submission, checked in this order.
   TTS_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(30),
   TTS_PENDING_CAP: z.coerce.number().int().positive().default(10),

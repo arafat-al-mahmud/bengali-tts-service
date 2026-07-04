@@ -225,6 +225,72 @@ export function jobsRouter(deps: AppDeps): Router {
     res.json(serializeJob(job));
   });
 
+  router.get('/v1/jobs/:id/events', auth, async (req, res) => {
+    const user = requireUser(req);
+    const job = await deps.prisma.job.findFirst({
+      where: { id: requireParam(req, 'id'), userId: user.id },
+    });
+    // The ownership check runs before any stream state, so this error is
+    // an ordinary JSON response, identical for foreign and unknown ids.
+    if (!job) throw new ApiError(404, 'NOT_FOUND', 'Resource not found');
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    const isTerminal = (status: Job['status']) => status === 'COMPLETED' || status === 'FAILED';
+    const send = (row: Job) => {
+      res.write(`event: status\ndata: ${JSON.stringify(serializeJob(row))}\n\n`);
+    };
+
+    // Snapshot first, then watch: the subscriber always sees the current
+    // status immediately, and a transition can never slip between the
+    // snapshot and the first poll.
+    send(job);
+    if (isTerminal(job.status)) {
+      res.end();
+      return;
+    }
+
+    // Watching is a per-connection database poll. The worker's only write
+    // channel is the jobs table, so polling it needs no extra moving parts
+    // and inherits its correctness; at higher connection counts the poll
+    // would be replaced by a Redis subscription feeding the same snapshot-
+    // then-watch loop.
+    let lastStatus: Job['status'] = job.status;
+    deps.sse.add(res);
+    const timer = setInterval(() => {
+      void (async () => {
+        const row = await deps.prisma.job.findUnique({ where: { id: job.id } });
+        if (!row) {
+          stop();
+          res.end();
+          return;
+        }
+        if (row.status !== lastStatus) {
+          lastStatus = row.status;
+          send(row);
+        }
+        if (isTerminal(row.status)) {
+          stop();
+          res.end();
+        }
+      })().catch(() => {
+        // The stream is best effort once headers are out; on a poll error
+        // the client sees end-of-stream and reconnects or falls back to
+        // polling GET /v1/jobs/:id.
+        stop();
+        res.end();
+      });
+    }, deps.config.SSE_POLL_INTERVAL_MS);
+    const stop = () => {
+      clearInterval(timer);
+      deps.sse.remove(res);
+    };
+    res.on('close', stop);
+  });
+
   router.get('/v1/jobs/:id/audio', auth, async (req, res) => {
     const user = requireUser(req);
     const job = await deps.prisma.job.findFirst({

@@ -9,6 +9,7 @@ import type { Metrics } from './lib/metrics.js';
 import type { PrismaClient } from './lib/prisma.js';
 import type { TtsQueue } from './lib/queue.js';
 import type { Redis } from './lib/redis.js';
+import type { SseHub } from './lib/sse.js';
 import { authRouter } from './routes/auth.js';
 import { healthRouter } from './routes/health.js';
 import { jobsRouter } from './routes/jobs.js';
@@ -23,6 +24,7 @@ export interface AppDeps {
   queue: TtsQueue;
   logger: Logger;
   metrics: Metrics;
+  sse: SseHub;
 }
 
 export function createApp(deps: AppDeps): Express {
