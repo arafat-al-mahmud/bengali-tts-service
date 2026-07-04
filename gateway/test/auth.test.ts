@@ -72,7 +72,7 @@ describe('API key lifecycle', () => {
 
     const listed = await request(ctx.app).get('/v1/keys').set('Authorization', user.auth);
     expect(listed.status).toBe(200);
-    const keys = listed.body.keys as Array<Record<string, unknown>>;
+    const keys = (listed.body as { keys: Array<Record<string, unknown>> }).keys;
     expect(keys).toHaveLength(1);
     expect(keys[0]).toMatchObject({ keyPrefix });
     expect(JSON.stringify(listed.body)).not.toContain(key);
@@ -97,7 +97,7 @@ describe('API key lifecycle', () => {
     expect(whoami.body).toMatchObject({ email: user.email });
 
     const listed = await request(ctx.app).get('/v1/keys').set('Authorization', user.auth);
-    const keys = listed.body.keys as Array<{ lastUsedAt: string | null }>;
+    const keys = (listed.body as { keys: Array<{ lastUsedAt: string | null }> }).keys;
     expect(keys[0]?.lastUsedAt).toBeTruthy();
   });
 

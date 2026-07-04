@@ -1,33 +1,56 @@
+import asyncio
 import signal
-import threading
 
+from bullmq import Worker
 from redis import Redis
 
+from worker import db, storage
 from worker.config import load_settings
+from worker.engines import create_engine
 from worker.logs import configure_logging, get_logger
+from worker.processor import Processor
 
 
-def main() -> None:
+async def run() -> None:
     configure_logging()
     log = get_logger()
     settings = load_settings()
 
-    redis = Redis.from_url(settings.redis_url)
-    redis.ping()
-    log.info("worker ready")
+    # Fail fast on unreachable dependencies rather than consuming jobs
+    # that cannot complete.
+    Redis.from_url(settings.redis_url).ping()
+    conn = db.connect(settings.database_url)
+    s3 = storage.create_s3(settings)
+    engine = create_engine(settings)
 
-    stop = threading.Event()
+    processor = Processor(conn, s3, engine, settings.s3_bucket)
 
-    def handle_signal(signum: int, _frame: object) -> None:
-        log.info("shutting down", signal=signal.Signals(signum).name)
-        stop.set()
+    worker = Worker(
+        settings.queue_name,
+        processor.process,
+        {
+            "connection": settings.redis_url,
+            # Inference saturates the compute device; one job at a time per
+            # worker process, scale by adding processes.
+            "concurrency": 1,
+        },
+    )
+    log.info("worker ready", engine=settings.tts_engine, queue=settings.queue_name)
 
-    signal.signal(signal.SIGTERM, handle_signal)
-    signal.signal(signal.SIGINT, handle_signal)
+    shutdown = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, shutdown.set)
 
-    # Job consumption arrives with the queue slice; for now the worker only
-    # proves it can start, reach Redis, and shut down cleanly.
-    stop.wait()
+    await shutdown.wait()
+    log.info("shutting down")
+    await worker.close()
+    conn.close()
+    log.info("shutdown complete")
+
+
+def main() -> None:
+    asyncio.run(run())
 
 
 if __name__ == "__main__":

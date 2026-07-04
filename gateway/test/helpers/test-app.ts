@@ -2,6 +2,7 @@ import { inject } from 'vitest';
 import { createApp, type AppDeps } from '../../src/app.js';
 import { loadConfig } from '../../src/config.js';
 import { createPrisma } from '../../src/lib/prisma.js';
+import { createTtsQueue } from '../../src/lib/queue.js';
 import { createRedis } from '../../src/lib/redis.js';
 import { createS3, ensureBucket } from '../../src/lib/storage.js';
 
@@ -25,13 +26,15 @@ export async function createTestContext(): Promise<TestContext> {
   const prisma = createPrisma(config.DATABASE_URL);
   const redis = createRedis(config.REDIS_URL);
   const s3 = createS3(config);
+  const queue = createTtsQueue(redis, config.TTS_QUEUE_NAME);
   await ensureBucket(s3, config.S3_BUCKET);
 
-  const deps: AppDeps = { config, prisma, redis, s3 };
+  const deps: AppDeps = { config, prisma, redis, s3, queue };
   return {
     app: createApp(deps),
     deps,
     close: async () => {
+      await queue.close();
       await prisma.$disconnect();
       redis.disconnect();
       s3.destroy();

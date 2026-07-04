@@ -13,8 +13,32 @@ model User {
   passwordHash String   @map("password_hash")
   createdAt    DateTime @default(now()) @map("created_at")
   apiKeys      ApiKey[]
+  jobs         Job[]
 
   @@map("users")
+}
+
+enum JobStatus {
+  QUEUED
+  ACTIVE
+  COMPLETED
+  FAILED
+}
+
+model Job {
+  id           String    @id @default(uuid())
+  userId       String    @map("user_id")
+  user         User      @relation(fields: [userId], references: [id])
+  status       JobStatus @default(QUEUED)
+  inputText    String    @map("input_text")
+  audioKey     String?   @map("audio_key")
+  errorCode    String?   @map("error_code")
+  errorMessage String?   @map("error_message")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  startedAt    DateTime? @map("started_at")
+  completedAt  DateTime? @map("completed_at")
+
+  @@map("jobs")
 }
 
 model ApiKey {
