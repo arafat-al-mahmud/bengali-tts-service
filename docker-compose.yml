@@ -29,7 +29,15 @@ services:
       S3_ACCESS_KEY: minioadmin
       S3_SECRET_KEY: minioadmin
       S3_BUCKET: tts-audio
+      # fake: instant synthetic WAVs, demonstrates the full pipeline.
+      # indicf5: real inference; gated model, needs HF_TOKEN (see docs).
       TTS_ENGINE: ${TTS_ENGINE:-fake}
+      TTS_DEVICE: ${TTS_DEVICE:-auto}
+      HF_TOKEN: ${HF_TOKEN:-}
+    volumes:
+      # Model weights survive container rebuilds; first indicf5 start
+      # downloads ~2 GB into this volume, later starts reuse it.
+      - model-cache:/models
     depends_on:
       postgres:
         condition: service_healthy
@@ -77,3 +85,4 @@ services:
 volumes:
   pgdata:
   minio-data:
+  model-cache:

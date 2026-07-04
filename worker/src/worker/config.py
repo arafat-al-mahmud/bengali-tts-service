@@ -12,6 +12,7 @@ class Settings:
     s3_secret_key: str
     s3_bucket: str
     tts_engine: str
+    tts_device: str
     queue_name: str
 
 
@@ -31,5 +32,6 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         s3_secret_key=env["S3_SECRET_KEY"],
         s3_bucket=env.get("S3_BUCKET", "tts-audio"),
         tts_engine=env.get("TTS_ENGINE", "fake"),
+        tts_device=env.get("TTS_DEVICE", "auto"),
         queue_name=env.get("TTS_QUEUE_NAME", "tts"),
     )

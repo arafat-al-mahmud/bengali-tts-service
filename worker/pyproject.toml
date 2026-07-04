@@ -12,7 +12,20 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Real inference. Torch-sized; the fake engine needs none of it, so CI
+# and local test runs install only [dev]. The Dockerfile pre-installs the
+# same set as its own layer to keep code-change rebuilds fast.
+indicf5 = [
+    "f5_tts @ git+https://github.com/AI4Bharat/IndicF5.git",
+    # <4.50 per IndicF5 requirements; newer transformers meta-initialize
+    # models, breaking the remote code's in-constructor vocoder load.
+    "transformers<4.50",
+    # torchaudio >= 2.9 decodes through torchcodec (needs ffmpeg present).
+    "torchcodec",
+    "huggingface_hub>=0.23",
+]
 dev = [
+    "numpy",
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "ruff>=0.4",
@@ -25,6 +38,10 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/worker"]
+
+[tool.hatch.metadata]
+# The [indicf5] extra installs the model package straight from GitHub.
+allow-direct-references = true
 
 [tool.ruff]
 line-length = 100

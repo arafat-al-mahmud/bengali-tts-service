@@ -10,12 +10,12 @@ Makes user story 17 real.
 
 ## Acceptance criteria
 
-- [ ] With the real engine enabled, submitting Bengali text produces an intelligible Bengali WAV end to end through the full pipeline
-- [ ] Model weights are cached in a volume; second start does not re-download
-- [ ] Device selection (CPU/MPS/GPU flag) is env-driven and logged at startup
-- [ ] Bundled Reference Voice is committed (or fetched deterministically) with its licensing noted
-- [ ] CI remains green and fast: no CI job downloads model weights
-- [ ] Setup docs state weight size, download path, and realistic latency expectations per device
+- [x] With the real engine enabled, submitting Bengali text produces an intelligible Bengali WAV end to end through the full pipeline
+- [x] Model weights are cached in a volume; second start does not re-download
+- [x] Device selection (CPU/MPS/GPU flag) is env-driven and logged at startup
+- [x] Bundled Reference Voice is committed (or fetched deterministically) with its licensing noted
+- [x] CI remains green and fast: no CI job downloads model weights
+- [x] Setup docs state weight size, download path, and realistic latency expectations per device
 
 ## Blocked by
 
