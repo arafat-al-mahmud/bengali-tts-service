@@ -1,0 +1,20 @@
+# Overlay for running the worker natively while everything else stays in
+# compose. Docker cannot hand a container Apple Silicon's GPU (MPS), and
+# CUDA passthrough needs the NVIDIA container toolkit; running the worker
+# as a host process sidesteps both. See docs/indicf5-setup.md.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.native-worker.yml \
+#     up -d --build --scale worker=0
+#
+# Host ports are non-default on purpose so they cannot collide with a
+# local Postgres or Redis already running on the machine.
+services:
+  postgres:
+    ports:
+      - "55432:5432"
+  redis:
+    ports:
+      - "56379:6379"
+  minio:
+    ports:
+      - "59000:9000"

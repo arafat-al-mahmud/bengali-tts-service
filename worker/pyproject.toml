@@ -25,6 +25,7 @@ indicf5 = [
     "huggingface_hub>=0.23",
 ]
 dev = [
+    "mypy>=1.10",
     "numpy",
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
@@ -42,6 +43,13 @@ packages = ["src/worker"]
 [tool.hatch.metadata]
 # The [indicf5] extra installs the model package straight from GitHub.
 allow-direct-references = true
+
+[tool.mypy]
+files = ["src"]
+# bullmq and boto3 ship no type stubs; their objects are typed Any at the
+# seams (see processor.py) rather than pretending to a precision the
+# libraries do not offer.
+ignore_missing_imports = true
 
 [tool.ruff]
 line-length = 100

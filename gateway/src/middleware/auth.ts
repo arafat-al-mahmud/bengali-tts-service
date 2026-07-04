@@ -24,7 +24,7 @@ export function requireUser(req: Request): AuthedUser {
 }
 
 /**
- * HTTP Basic auth with the account email and password. Guards API key
+ * HTTP Basic auth with the user email and password. Guards API key
  * management only; everything else authenticates with an API key.
  */
 export function basicAuth(prisma: PrismaClient): RequestHandler {

@@ -1,7 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import { Counter, Gauge, Histogram, Registry } from 'prom-client';
 import type { PrismaClient } from './prisma.js';
-import type { TtsQueue } from './queue.js';
+import { queueDepth, type TtsQueue } from './queue.js';
 
 export interface Metrics {
   registry: Registry;
@@ -38,8 +38,7 @@ export function createMetrics(prisma: PrismaClient, queue: TtsQueue): Metrics {
     help: 'Jobs currently waiting, delayed, or running in the queue',
     registers: [registry],
     async collect() {
-      const counts = await queue.getJobCounts('waiting', 'active', 'delayed', 'prioritized');
-      this.set(Object.values(counts).reduce((sum, n) => sum + (n ?? 0), 0));
+      this.set(await queueDepth(queue));
     },
   });
 
@@ -57,12 +56,12 @@ export function createMetrics(prisma: PrismaClient, queue: TtsQueue): Metrics {
   });
 
   // Durations come from job rows at scrape time; only rows that reached a
-  // terminal state since the previous scrape are observed, so each job is
+  // terminal status since the previous scrape are observed, so each job is
   // counted once per process lifetime.
   let observedUpTo = new Date();
   new Histogram({
     name: 'tts_job_duration_seconds',
-    help: 'Time from synthesis start to terminal state',
+    help: 'Time from synthesis start to terminal status',
     labelNames: ['status'],
     buckets: [0.1, 0.5, 1, 5, 15, 30, 60, 120, 300, 600],
     registers: [registry],

@@ -1,10 +1,10 @@
 import { GetObjectCommand } from '@aws-sdk/client-s3';
-import { Router, type Response } from 'express';
+import { Router, type Request, type Response } from 'express';
 import type { Readable } from 'node:stream';
 import { z } from 'zod';
 import type { AppDeps } from '../app.js';
 import { ApiError } from '../lib/errors.js';
-import { enqueueTtsJob } from '../lib/queue.js';
+import { enqueueTtsJob, queueDepth } from '../lib/queue.js';
 import { takeRateLimitToken } from '../lib/rate-limit.js';
 import { validateTtsText } from '../lib/tts-text.js';
 import { requireParam, validate } from '../lib/validate.js';
@@ -47,23 +47,38 @@ export function jobsRouter(deps: AppDeps): Router {
   const router = Router();
   const auth = apiKeyAuth(deps.prisma);
 
-  // A retry with the original payload replays the stored job; the same key
-  // with a different payload is a client bug, called out as a conflict.
+  /** The scoped lookup every job route shares: another user's job id is
+   * indistinguishable from a nonexistent one. */
+  async function findOwnedJob(req: Request): Promise<Job> {
+    const user = requireUser(req);
+    const job = await deps.prisma.job.findFirst({
+      where: { id: requireParam(req, 'id'), userId: user.id },
+    });
+    if (!job) throw new ApiError(404, 'NOT_FOUND', 'Resource not found');
+    return job;
+  }
+
+  function submissionBody(job: Job) {
+    return {
+      jobId: job.id,
+      status: job.status,
+      statusUrl: `/v1/jobs/${job.id}`,
+      pollIntervalMs: deps.config.POLL_INTERVAL_MS,
+    };
+  }
+
+  // A retry with the original text replays the stored job; the same key
+  // with different input text is a client bug, called out as a conflict.
   function respondForIdempotentRetry(res: Response, job: Job, body: unknown): void {
     const { text } = validate(submitSchema, body);
     if (text !== job.inputText) {
       throw new ApiError(
         409,
         'IDEMPOTENCY_CONFLICT',
-        'This Idempotency-Key was already used with a different payload',
+        'This Idempotency-Key was already used with different input text',
       );
     }
-    res.status(200).json({
-      jobId: job.id,
-      status: job.status,
-      statusUrl: `/v1/jobs/${job.id}`,
-      pollIntervalMs: deps.config.POLL_INTERVAL_MS,
-    });
+    res.status(200).json(submissionBody(job));
   }
 
   router.post('/v1/tts', auth, async (req, res) => {
@@ -128,13 +143,7 @@ export function jobsRouter(deps: AppDeps): Router {
         // is bounded by the connection pool (only that many transactions sit
         // between this read and their insert at once), and the gate is load
         // shedding, not a contract, so approximate is the right trade.
-        const counts = await deps.queue.getJobCounts(
-          'waiting',
-          'active',
-          'delayed',
-          'prioritized',
-        );
-        const depth = Object.values(counts).reduce((sum, n) => sum + n, 0);
+        const depth = await queueDepth(deps.queue);
         if (depth >= deps.config.TTS_QUEUE_CAPACITY) {
           deps.metrics.gateRejections.inc({ gate: 'queue_full' });
           throw new ApiError(503, 'QUEUE_FULL', 'Service is at capacity; retry later');
@@ -184,12 +193,7 @@ export function jobsRouter(deps: AppDeps): Router {
       throw err;
     }
 
-    res.status(202).json({
-      jobId: job.id,
-      status: job.status,
-      statusUrl: `/v1/jobs/${job.id}`,
-      pollIntervalMs: deps.config.POLL_INTERVAL_MS,
-    });
+    res.status(202).json(submissionBody(job));
   });
 
   router.get('/v1/jobs', auth, async (req, res) => {
@@ -215,24 +219,14 @@ export function jobsRouter(deps: AppDeps): Router {
   });
 
   router.get('/v1/jobs/:id', auth, async (req, res) => {
-    const user = requireUser(req);
-    // Scoping the lookup to the caller makes another user's job id
-    // indistinguishable from a nonexistent one.
-    const job = await deps.prisma.job.findFirst({
-      where: { id: requireParam(req, 'id'), userId: user.id },
-    });
-    if (!job) throw new ApiError(404, 'NOT_FOUND', 'Resource not found');
+    const job = await findOwnedJob(req);
     res.json(serializeJob(job));
   });
 
   router.get('/v1/jobs/:id/events', auth, async (req, res) => {
-    const user = requireUser(req);
-    const job = await deps.prisma.job.findFirst({
-      where: { id: requireParam(req, 'id'), userId: user.id },
-    });
-    // The ownership check runs before any stream state, so this error is
-    // an ordinary JSON response, identical for foreign and unknown ids.
-    if (!job) throw new ApiError(404, 'NOT_FOUND', 'Resource not found');
+    // The ownership check runs before any stream state, so its 404 is an
+    // ordinary JSON response, identical for foreign and unknown ids.
+    const job = await findOwnedJob(req);
 
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
@@ -292,11 +286,7 @@ export function jobsRouter(deps: AppDeps): Router {
   });
 
   router.get('/v1/jobs/:id/audio', auth, async (req, res) => {
-    const user = requireUser(req);
-    const job = await deps.prisma.job.findFirst({
-      where: { id: requireParam(req, 'id'), userId: user.id },
-    });
-    if (!job) throw new ApiError(404, 'NOT_FOUND', 'Resource not found');
+    const job = await findOwnedJob(req);
     if (job.status === 'FAILED') {
       throw new ApiError(409, 'JOB_FAILED', 'Job failed; no audio was produced');
     }

@@ -13,7 +13,7 @@ class Processor:
     """Handles one BullMQ job: load the row, synthesize, upload, complete.
 
     Processing is idempotent by job id: a job that already reached a
-    terminal state is skipped, so a redelivery (worker crash, stalled-job
+    terminal status is skipped, so a redelivery (worker crash, stalled-job
     recovery) never synthesizes or uploads twice.
     """
 
@@ -47,7 +47,7 @@ class Processor:
             # nothing to retry.
             log.warning("job row not found, skipping")
             return {"skipped": "missing"}
-        if row.status in ("COMPLETED", "FAILED"):
+        if row.status in db.TERMINAL_STATUSES:
             log.info("job already terminal, skipping", status=row.status)
             return {"skipped": row.status.lower()}
 
@@ -90,7 +90,7 @@ class Processor:
         log.info("synthesis completed", audio_key=key, wav_bytes=len(wav))
         return {"audioKey": key}
 
-    def record_bypassed_failure(self, job: Any, _err: Exception) -> None:
+    def record_bypassed_failure(self, job: Any, err: Exception) -> None:
         """Failed-event listener for failures that bypass process().
 
         A job that exceeds BullMQ's stall limit (it repeatedly took a
@@ -103,7 +103,7 @@ class Processor:
             return
         job_id = job.data["jobId"]
         row = db.fetch_job(self._conn, job_id)
-        if row is None or row.status in ("COMPLETED", "FAILED"):
+        if row is None or row.status in db.TERMINAL_STATUSES:
             return
         db.mark_failed(self._conn, job_id, "INTERNAL", "Synthesis failed")
-        self._log.warning("job failed without processing", job_id=job_id, reason=str(_err))
+        self._log.warning("job failed without processing", job_id=job_id, reason=str(err))

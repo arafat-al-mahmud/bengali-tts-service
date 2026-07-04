@@ -19,7 +19,7 @@ export function authRouter(deps: AppDeps): Router {
     const { email, password } = validate(registerSchema, req.body);
     const existing = await deps.prisma.user.findUnique({ where: { email } });
     if (existing) {
-      throw new ApiError(409, 'EMAIL_TAKEN', 'An account with this email already exists');
+      throw new ApiError(409, 'EMAIL_TAKEN', 'A user with this email already exists');
     }
     const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
     const user = await deps.prisma.user.create({ data: { email, passwordHash } });

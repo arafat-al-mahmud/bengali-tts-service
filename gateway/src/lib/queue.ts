@@ -13,6 +13,12 @@ export function createTtsQueue(redis: Redis, queueName: string): TtsQueue {
   return new Queue(queueName, { connection: redis });
 }
 
+/** Jobs waiting, delayed, or running: the backlog a new submission joins. */
+export async function queueDepth(queue: TtsQueue): Promise<number> {
+  const counts = await queue.getJobCounts('waiting', 'active', 'delayed', 'prioritized');
+  return Object.values(counts).reduce((sum, n) => sum + (n ?? 0), 0);
+}
+
 export interface RetryPolicy {
   attempts: number;
   backoffMs: number;
