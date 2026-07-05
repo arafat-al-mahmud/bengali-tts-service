@@ -1,29 +1,53 @@
 # Bengali TTS Service
 
+[![CI](https://github.com/arafat-al-mahmud/bengali-tts-service/actions/workflows/ci.yml/badge.svg)](https://github.com/arafat-al-mahmud/bengali-tts-service/actions/workflows/ci.yml)
+
 A multi-user API service that turns Bengali text into playable audio using the [IndicF5](https://huggingface.co/ai4bharat/IndicF5) text-to-speech model. A user registers, obtains an API key, and submits text as a job. Submission returns immediately with a job id; synthesis runs in the background, so slow inference never blocks the client. The user polls the job (or subscribes to a live status stream) until it completes, then downloads the result as a WAV file.
 
 The design centers on three constraints: inference is slow and compute-bound, users must be strictly isolated from each other, and the service must stay responsive under concurrent load instead of degrading for everyone.
 
+**Hear it:** [docs/samples/bengali-sample.wav](docs/samples/bengali-sample.wav) is committed output from this exact stack running IndicF5 on CPU, for the input text "এই সেবাটি বাংলা লেখা থেকে স্পষ্ট ও স্বাভাবিক কথ্য বাংলা তৈরি করে।" ("This service produces clear and natural spoken Bengali from Bengali text."). The voice comes from the reference prompt audio shipped in the model's own [Hugging Face repository](https://huggingface.co/ai4bharat/IndicF5); IndicF5 is a voice-cloning model, and cross-lingual cloning from that reference is its documented usage (details in [docs/indicf5-setup.md](docs/indicf5-setup.md)).
+
+## Tech stack
+
+- **Gateway (API tier):** Node.js 24, TypeScript, Express 5, Prisma 7, zod, pino, prom-client
+- **Worker (inference tier):** Python 3.11, PyTorch + IndicF5, psycopg, structlog
+- **Queue:** Redis 7 with BullMQ (Node producer, Python consumer)
+- **Storage:** PostgreSQL 16 (users, keys, job status), MinIO / S3 (audio)
+- **Testing:** Vitest + Supertest + Testcontainers, pytest, k6 (load)
+- **Ops:** Docker Compose, GitHub Actions, Prometheus + Grafana (optional profile)
+
 ## Quick start
 
-```bash
-docker compose up -d --build
-./scripts/e2e-smoke.sh
-```
+**Prerequisites:** Docker with the compose plugin. That is the entire list; migrations run automatically on gateway start.
 
-That is the whole setup. The smoke script registers a user, issues a key, submits Bengali text, waits for completion, downloads the audio, and verifies it is a playable WAV.
+1. Bring up the full stack (gateway, worker, PostgreSQL, Redis, MinIO):
 
-By default the worker runs a **fake engine** that produces valid placeholder WAVs instantly, which exercises the entire pipeline (auth, queueing, backpressure, storage, streaming) without a 2 GB model download. To run real IndicF5 synthesis:
+   ```bash
+   docker compose up -d --build
+   ```
+
+2. Run the end-to-end smoke test. It registers a user, issues an API key, submits Bengali text, waits for completion, downloads the audio, and verifies it is a playable WAV:
+
+   ```bash
+   ./scripts/e2e-smoke.sh
+   ```
+
+That is a complete run. By default the worker uses a **fake engine** that produces valid placeholder WAVs instantly, which exercises the entire pipeline (auth, queueing, backpressure, storage, streaming) without a 2 GB model download.
+
+### Real IndicF5 synthesis
+
+IndicF5 is a gated model: accept the terms on the [model page](https://huggingface.co/ai4bharat/IndicF5), create a read-scoped token, then:
 
 ```bash
 TTS_ENGINE=indicf5 HF_TOKEN=hf_your_token docker compose up -d --build
 ```
 
-IndicF5 is a gated model; see [docs/indicf5-setup.md](docs/indicf5-setup.md) for access setup, download size, GPU selection, and expected CPU latency. On an Apple Silicon Mac (or a GPU host without container GPU passthrough) the worker can run natively against the composed infrastructure and use the host GPU; the same doc covers that hybrid setup.
+See [docs/indicf5-setup.md](docs/indicf5-setup.md) for download size, device selection, and expected CPU latency. On an Apple Silicon Mac (or a GPU host without container GPU passthrough) the worker can run natively against the composed infrastructure and use the host GPU; the same doc covers that hybrid setup.
 
-To hear the real model without any of that: [docs/samples/bengali-sample.wav](docs/samples/bengali-sample.wav) is a committed sample produced by this exact stack running IndicF5 on CPU, for the input text "এই সেবাটি বাংলা লেখা থেকে স্পষ্ট ও স্বাভাবিক কথ্য বাংলা তৈরি করে।" ("This service produces clear and natural spoken Bengali from Bengali text.").
+### Monitoring
 
-To also bring up Prometheus and Grafana (pre-provisioned dashboard, no manual configuration):
+Prometheus and Grafana with a pre-provisioned dashboard, no manual configuration:
 
 ```bash
 docker compose --profile monitoring up -d --build
