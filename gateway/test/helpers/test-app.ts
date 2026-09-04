@@ -1,3 +1,4 @@
+import { Effect } from 'effect';
 import { pino, type Logger } from 'pino';
 import { inject } from 'vitest';
 import { createApp, type AppDeps } from '../../src/app.js';
@@ -7,7 +8,7 @@ import { createPrisma } from '../../src/lib/prisma.js';
 import { createTtsQueue } from '../../src/lib/queue.js';
 import { createRedis } from '../../src/lib/redis.js';
 import { createSseHub } from '../../src/lib/sse.js';
-import { createS3, ensureBucket } from '../../src/lib/storage.js';
+import { createS3, ensureBucket, StorageService } from '../../src/lib/storage.js';
 
 export interface TestContext {
   app: ReturnType<typeof createApp>;
@@ -34,7 +35,9 @@ export async function createTestContext(
   const redis = createRedis(config.REDIS_URL);
   const s3 = createS3(config);
   const queue = createTtsQueue(redis, config.TTS_QUEUE_NAME);
-  await ensureBucket(s3, config.S3_BUCKET);
+  await Effect.runPromise(
+    ensureBucket(config.S3_BUCKET).pipe(Effect.provideService(StorageService, s3)),
+  );
 
   const logger = extras.logger ?? pino({ level: 'silent' });
   const metrics = createMetrics(prisma, queue);

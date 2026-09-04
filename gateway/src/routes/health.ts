@@ -1,6 +1,7 @@
+import { Effect } from 'effect';
 import { Router } from 'express';
 import type { AppDeps } from '../app.js';
-import { checkBucket } from '../lib/storage.js';
+import { checkBucket, StorageService } from '../lib/storage.js';
 
 type CheckResult = 'ok' | 'unreachable';
 
@@ -34,7 +35,13 @@ export function healthRouter(deps: AppDeps): Router {
     const [postgres, redis, storage] = await Promise.all([
       check(() => deps.prisma.$queryRaw`SELECT 1`),
       check(() => deps.redis.ping()),
-      check(() => checkBucket(deps.s3, deps.config.S3_BUCKET)),
+      check(() =>
+        Effect.runPromise(
+          checkBucket(deps.config.S3_BUCKET).pipe(
+            Effect.provideService(StorageService, deps.s3),
+          ),
+        ),
+      ),
     ]);
     const checks = { postgres, redis, storage };
     const ready = Object.values(checks).every((c) => c === 'ok');

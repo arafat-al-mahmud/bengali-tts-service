@@ -1,4 +1,3 @@
-import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { Effect } from 'effect';
 import { Router, type Request, type Response } from 'express';
 import type { Readable } from 'node:stream';
@@ -17,6 +16,7 @@ import { enqueueTtsJob, queueDepth } from '../lib/queue.js';
 import { takeRateLimitToken } from '../lib/rate-limit.js';
 import { RedisService } from '../lib/redis.js';
 import { runEffect } from '../lib/run-effect.js';
+import { getAudioObject, StorageService } from '../lib/storage.js';
 import { validateTtsText } from '../lib/tts-text.js';
 import { requireParam, validate } from '../lib/validate.js';
 import { apiKeyAuth, requireUser } from '../middleware/auth.js';
@@ -302,8 +302,14 @@ export function jobsRouter(deps: AppDeps): Router {
       throw new JobNotReady();
     }
 
-    const object = await deps.s3.send(
-      new GetObjectCommand({ Bucket: deps.config.S3_BUCKET, Key: job.audioKey }),
+    // Fetching a finished recording is a repeatable read, so a connection
+    // that dropped on the way out is retried rather than handed to the
+    // client as a 500. A missing object is an answer, not a blip, and
+    // surfaces on the first try.
+    const object = await runEffect(
+      getAudioObject(deps.config.S3_BUCKET, job.audioKey).pipe(
+        Effect.provideService(StorageService, deps.s3),
+      ),
     );
     res.setHeader('Content-Type', 'audio/wav');
     if (object.ContentLength !== undefined) {
