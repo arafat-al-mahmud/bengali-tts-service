@@ -37,9 +37,12 @@ polls `tts_queue_depth` on `/metrics` until the backlog drains.
 | 503 `QUEUE_FULL` | 1041 | global backlog at 60 |
 | unexpected responses | 0 | every response was one of the above |
 
-- 3493 requests at ~18 req/s sustained; p95 latency 11 ms even while
-  rejecting >97% of traffic. Rejections are cheap by design: every gate
-  fires before a job row or queue entry exists.
+- The four submission outcomes total 3,392 requests during the 60-second
+  burst: approximately 56.5 submission requests/s. The k6 summary reported
+  3,493 total HTTP requests at ~18 req/s because it also counted setup and
+  teardown requests and averaged across the 121-second drain phase. Submission
+  p95 latency was 11 ms even while rejecting >97% of burst traffic. Rejections
+  are cheap by design: every gate fires before a job row or queue entry exists.
 - Queue drained 60 → 0 in 121 s after the burst: exactly the single-flight
   worker's pace (60 jobs x 2 s simulated inference), confirming inference
   concurrency stayed at one throughout.
@@ -55,9 +58,9 @@ polls `tts_queue_depth` on `/metrics` until the backlog drains.
 
 ## Interpretation
 
-Under a 37x overload (18 req/s offered vs ~0.5 jobs/s of capacity), the
-service stays responsive, degrades by policy instead of by accident, and
-recovers to an empty queue with no manual intervention. Every rejection
-tells the client what to do next: back off (`RATE_LIMITED`, with
-Retry-After), wait for your own jobs (`PENDING_CAP_EXCEEDED`), or try
-again later (`QUEUE_FULL`).
+Under roughly 113x offered pressure during the burst (56.5 submissions/s
+vs ~0.5 jobs/s of completion capacity), the service stays responsive,
+degrades by policy instead of by accident, and recovers to an empty queue
+with no manual intervention. Every rejection tells the client what to do
+next: back off (`RATE_LIMITED`, with Retry-After), wait for your own jobs
+(`PENDING_CAP_EXCEEDED`), or try again later (`QUEUE_FULL`).
