@@ -1,4 +1,6 @@
-import type { Redis } from './redis.js';
+import { Effect } from 'effect';
+import { RateLimited } from './errors.js';
+import { RedisService } from './redis.js';
 
 /**
  * Token bucket, evaluated atomically inside Redis so concurrent requests
@@ -38,23 +40,29 @@ redis.call('PEXPIRE', KEYS[1], 60000)
 return {allowed, retry_after_ms}
 `;
 
-export interface RateLimitDecision {
-  allowed: boolean;
-  /** Whole seconds until a token is available; 0 when allowed. */
-  retryAfterSeconds: number;
-}
-
-export async function takeRateLimitToken(
-  redis: Redis,
+/**
+ * Succeeds when the caller may proceed and fails with RateLimited when it
+ * may not, so "allowed" is not a boolean anyone can forget to check.
+ *
+ * Redis being unreachable is not one of the outcomes here. That is a fault,
+ * not a verdict on the request, so it stays unhandled and surfaces as a 500
+ * with the original error in the logs rather than as a quiet rejection.
+ */
+export function takeRateLimitToken(
   userId: string,
   perMinute: number,
-): Promise<RateLimitDecision> {
-  const [allowed, retryAfterMs] = (await redis.eval(TAKE_TOKEN, 1, `rate:${userId}`, perMinute)) as [
-    number,
-    number,
-  ];
-  return {
-    allowed: allowed === 1,
-    retryAfterSeconds: allowed === 1 ? 0 : Math.max(1, Math.ceil(retryAfterMs / 1000)),
-  };
+): Effect.Effect<void, RateLimited, RedisService> {
+  return Effect.gen(function* () {
+    const redis = yield* RedisService;
+
+    const [allowed, retryAfterMs] = yield* Effect.promise(
+      () => redis.eval(TAKE_TOKEN, 1, `rate:${userId}`, perMinute) as Promise<[number, number]>,
+    );
+
+    if (allowed !== 1) {
+      yield* Effect.fail(
+        new RateLimited({ retryAfterSeconds: Math.max(1, Math.ceil(retryAfterMs / 1000)) }),
+      );
+    }
+  });
 }
