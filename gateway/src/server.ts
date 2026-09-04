@@ -1,3 +1,4 @@
+import { Effect } from 'effect';
 import { pino } from 'pino';
 import { createApp } from './app.js';
 import { loadConfig } from './config.js';
@@ -7,7 +8,7 @@ import { createTtsQueue } from './lib/queue.js';
 import { createRedis } from './lib/redis.js';
 import { gracefulShutdown } from './lib/shutdown.js';
 import { createSseHub } from './lib/sse.js';
-import { createS3, ensureBucket } from './lib/storage.js';
+import { createS3, ensureBucket, StorageService } from './lib/storage.js';
 
 const config = loadConfig();
 const logger = pino({ level: config.LOG_LEVEL });
@@ -17,7 +18,11 @@ const redis = createRedis(config.REDIS_URL);
 const s3 = createS3(config);
 const queue = createTtsQueue(redis, config.TTS_QUEUE_NAME);
 
-await ensureBucket(s3, config.S3_BUCKET);
+// Storage may still be accepting connections when we get here; the retry
+// inside waits it out rather than letting a boot race kill the process.
+await Effect.runPromise(
+  ensureBucket(config.S3_BUCKET).pipe(Effect.provideService(StorageService, s3)),
+);
 
 const metrics = createMetrics(prisma, queue);
 const sse = createSseHub();
