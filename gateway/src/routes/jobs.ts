@@ -1,4 +1,5 @@
 import { GetObjectCommand } from '@aws-sdk/client-s3';
+import { Effect } from 'effect';
 import { Router, type Request, type Response } from 'express';
 import type { Readable } from 'node:stream';
 import { z } from 'zod';
@@ -10,11 +11,11 @@ import {
   NotFound,
   PendingCapExceeded,
   QueueFull,
-  RateLimited,
   ValidationFailed,
 } from '../lib/errors.js';
 import { enqueueTtsJob, queueDepth } from '../lib/queue.js';
 import { takeRateLimitToken } from '../lib/rate-limit.js';
+import { RedisService } from '../lib/redis.js';
 import { runEffect } from '../lib/run-effect.js';
 import { validateTtsText } from '../lib/tts-text.js';
 import { requireParam, validate } from '../lib/validate.js';
@@ -107,17 +108,17 @@ export function jobsRouter(deps: AppDeps): Router {
     // Backpressure gates, in order, each with a distinct rejection so
     // clients know whether to slow down, wait for running jobs, or back
     // off entirely. All fire before any Job row or queue entry exists.
-    const rate = await takeRateLimitToken(
-      deps.redis,
-      user.id,
-      deps.config.TTS_RATE_LIMIT_PER_MINUTE,
+    // Counting the rejection is attached to the failure itself rather than
+    // written in a branch beside it, so the gate cannot reject without the
+    // metric moving. Redis arrives by name, supplied here at the edge.
+    await runEffect(
+      takeRateLimitToken(user.id, deps.config.TTS_RATE_LIMIT_PER_MINUTE).pipe(
+        Effect.tapError(() =>
+          Effect.sync(() => deps.metrics.gateRejections.inc({ gate: 'rate_limit' })),
+        ),
+        Effect.provideService(RedisService, deps.redis),
+      ),
     );
-    if (!rate.allowed) {
-      deps.metrics.gateRejections.inc({ gate: 'rate_limit' });
-      // The wait travels on the error itself; the edge turns it into the
-      // Retry-After header, so nothing here needs the response object.
-      throw new RateLimited({ retryAfterSeconds: rate.retryAfterSeconds });
-    }
 
     const { text } = validate(submitSchema, req.body);
     // The rules run as a value the route executes here rather than as a
