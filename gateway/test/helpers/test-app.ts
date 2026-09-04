@@ -9,6 +9,7 @@ import { createTtsQueue } from '../../src/lib/queue.js';
 import { createRedis } from '../../src/lib/redis.js';
 import { createSseHub } from '../../src/lib/sse.js';
 import { createS3, ensureBucket, StorageService } from '../../src/lib/storage.js';
+import { makeRuntime } from '../../src/lib/tracing.js';
 
 export interface TestContext {
   app: ReturnType<typeof createApp>;
@@ -42,12 +43,15 @@ export async function createTestContext(
   const logger = extras.logger ?? pino({ level: 'silent' });
   const metrics = createMetrics(prisma, queue);
   const sse = createSseHub();
-  const deps: AppDeps = { config, prisma, redis, s3, queue, logger, metrics, sse };
+  // No collector under test: spans are recorded and go nowhere.
+  const runtime = makeRuntime(config.OTEL_EXPORTER_OTLP_ENDPOINT);
+  const deps: AppDeps = { config, runtime, prisma, redis, s3, queue, logger, metrics, sse };
   return {
     app: createApp(deps),
     deps,
     close: async () => {
       sse.closeAll();
+      await runtime.dispose();
       await queue.close();
       await prisma.$disconnect();
       redis.disconnect();

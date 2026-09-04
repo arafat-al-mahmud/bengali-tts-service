@@ -1,5 +1,5 @@
 import { Effect } from 'effect';
-import { Router, type Request, type Response } from 'express';
+import { Router, type Request } from 'express';
 import type { Readable } from 'node:stream';
 import { z } from 'zod';
 import type { AppDeps } from '../app.js';
@@ -15,11 +15,11 @@ import {
 import { enqueueTtsJob, QueueService, queueDepth } from '../lib/queue.js';
 import { takeRateLimitToken } from '../lib/rate-limit.js';
 import { RedisService } from '../lib/redis.js';
-import { runEffect } from '../lib/run-effect.js';
+import { attempt, attemptPromise, runEffect } from '../lib/run-effect.js';
 import { getAudioObject, StorageService } from '../lib/storage.js';
 import { validateTtsText } from '../lib/tts-text.js';
 import { requireParam, validate } from '../lib/validate.js';
-import { apiKeyAuth, requireUser } from '../middleware/auth.js';
+import { apiKeyAuth, requireUser, type AuthedUser } from '../middleware/auth.js';
 import { Prisma, type Job } from '../generated/prisma/client.js';
 
 const submitSchema = z.object({
@@ -78,62 +78,35 @@ export function jobsRouter(deps: AppDeps): Router {
     };
   }
 
+  /** What the client is owed: a replay of a stored job, or a new one. */
+  type Submission = { readonly status: 200 | 202; readonly job: Job };
+
   // A retry with the original text replays the stored job; the same key
   // with different input text is a client bug, called out as a conflict.
-  function respondForIdempotentRetry(res: Response, job: Job, body: unknown): void {
-    const { text } = validate(submitSchema, body);
-    if (text !== job.inputText) {
-      throw new IdempotencyConflict();
-    }
-    res.status(200).json(submissionBody(job));
+  function replayOf(job: Job, body: unknown): Effect.Effect<Submission, unknown> {
+    return Effect.gen(function* () {
+      const { text } = yield* attempt(() => validate(submitSchema, body));
+      if (text !== job.inputText) return yield* Effect.fail(new IdempotencyConflict());
+      return { status: 200, job } as const;
+    });
   }
 
-  router.post('/v1/tts', auth, async (req, res) => {
-    const user = requireUser(req);
-    const idempotencyKey = readIdempotencyKey(req);
-
-    // Replay before the gates: a client retrying a submission it never got
-    // an answer for must find its job even while the queue is full or its
-    // bucket is empty. That safety is the whole point of the key.
-    if (idempotencyKey !== undefined) {
-      const existing = await deps.prisma.job.findFirst({
-        where: { userId: user.id, idempotencyKey },
-      });
-      if (existing) {
-        respondForIdempotentRetry(res, existing, req.body);
-        return;
-      }
-    }
-
-    // Backpressure gates, in order, each with a distinct rejection so
-    // clients know whether to slow down, wait for running jobs, or back
-    // off entirely. All fire before any Job row or queue entry exists.
-    // Counting the rejection is attached to the failure itself rather than
-    // written in a branch beside it, so the gate cannot reject without the
-    // metric moving. Redis arrives by name, supplied here at the edge.
-    await runEffect(
-      takeRateLimitToken(user.id, deps.config.TTS_RATE_LIMIT_PER_MINUTE).pipe(
-        Effect.tapError(() =>
-          Effect.sync(() => deps.metrics.gateRejections.inc({ gate: 'rate_limit' })),
-        ),
-        Effect.provideService(RedisService, deps.redis),
-      ),
-    );
-
-    const { text } = validate(submitSchema, req.body);
-    // The rules run as a value the route executes here rather than as a
-    // function that throws from somewhere inside. What it can reject is
-    // fixed by its type, and this line is the one place that turns any of
-    // those rejections into a response.
-    await runEffect(validateTtsText(text, deps.config.TTS_MAX_TEXT_LENGTH));
-
-    // The pending count and the insert must act as one unit, or a burst of
-    // concurrent submissions all reads the same count and lands the whole
-    // burst over the cap. A per-user advisory lock serializes only this
-    // user's submissions; everyone else proceeds in parallel.
-    let job: Job;
+  /**
+   * The capacity gates and the insert as one unit, or the winner's row
+   * when a same-key submission beat us to it.
+   *
+   * The pending count and the insert must act as one unit, or a burst of
+   * concurrent submissions all reads the same count and lands the whole
+   * burst over the cap. A per-user advisory lock serializes only this
+   * user's submissions; everyone else proceeds in parallel.
+   */
+  async function insertUnderCapacity(
+    user: AuthedUser,
+    text: string,
+    idempotencyKey: string | undefined,
+  ): Promise<{ readonly created: Job } | { readonly lostRace: Job }> {
     try {
-      job = await deps.prisma.$transaction(async (tx) => {
+      const job = await deps.prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${user.id}))`;
 
         const pending = await tx.job.count({
@@ -152,6 +125,7 @@ export function jobsRouter(deps: AppDeps): Router {
         // between this read and their insert at once), and the gate is load
         // shedding, not a contract, so approximate is the right trade.
         const depth = await runEffect(
+          deps.runtime,
           queueDepth().pipe(Effect.provideService(QueueService, deps.queue)),
         );
         if (depth >= deps.config.TTS_QUEUE_CAPACITY) {
@@ -167,6 +141,7 @@ export function jobsRouter(deps: AppDeps): Router {
           },
         });
       });
+      return { created: job };
     } catch (err) {
       // Two same-key submissions racing past the replay check: the unique
       // constraint lets exactly one insert win; the loser is answered from
@@ -179,22 +154,23 @@ export function jobsRouter(deps: AppDeps): Router {
         const winner = await deps.prisma.job.findFirst({
           where: { userId: user.id, idempotencyKey },
         });
-        if (winner) {
-          respondForIdempotentRetry(res, winner, req.body);
-          return;
-        }
+        if (winner) return { lostRace: winner };
       }
       throw err;
     }
+  }
+
+  async function enqueueOrRemoveJob(job: Job, correlationId: string | undefined): Promise<void> {
     try {
       await runEffect(
+        deps.runtime,
         enqueueTtsJob(
           job.id,
           {
             attempts: deps.config.TTS_JOB_ATTEMPTS,
             backoffMs: deps.config.TTS_RETRY_BACKOFF_MS,
           },
-          typeof req.id === 'string' ? req.id : undefined,
+          correlationId,
         ).pipe(Effect.provideService(QueueService, deps.queue)),
       );
     } catch (err) {
@@ -203,8 +179,75 @@ export function jobsRouter(deps: AppDeps): Router {
       await deps.prisma.job.delete({ where: { id: job.id } }).catch(() => undefined);
       throw err;
     }
+  }
 
-    res.status(202).json(submissionBody(job));
+  router.post('/v1/tts', auth, async (req, res) => {
+    const user = requireUser(req);
+    const idempotencyKey = readIdempotencyKey(req);
+    const correlationId = typeof req.id === 'string' ? req.id : undefined;
+
+    // The whole submission is one Effect so its stages are one trace
+    // rather than five unrelated ones: the parent span below is what a
+    // waterfall hangs from, and each stage names itself inside it. Until
+    // now the only observable number for a submission was its total
+    // duration, which cannot tell a slow gate from a slow insert.
+    const submission = await runEffect(
+      deps.runtime,
+      Effect.gen(function* () {
+        // Replay before the gates: a client retrying a submission it never
+        // got an answer for must find its job even while the queue is full
+        // or its bucket is empty. That safety is the whole point of the key.
+        if (idempotencyKey !== undefined) {
+          const existing = yield* attemptPromise(() =>
+            deps.prisma.job.findFirst({ where: { userId: user.id, idempotencyKey } }),
+          ).pipe(Effect.withSpan('tts.submit.idempotency_replay'));
+          if (existing) return yield* replayOf(existing, req.body);
+        }
+
+        // Backpressure gates, in order, each with a distinct rejection so
+        // clients know whether to slow down, wait for running jobs, or back
+        // off entirely. All fire before any Job row or queue entry exists.
+        // Counting the rejection is attached to the failure itself rather
+        // than written in a branch beside it, so the gate cannot reject
+        // without the metric moving. Redis arrives by name, supplied here.
+        yield* takeRateLimitToken(user.id, deps.config.TTS_RATE_LIMIT_PER_MINUTE).pipe(
+          Effect.tapError(() =>
+            Effect.sync(() => deps.metrics.gateRejections.inc({ gate: 'rate_limit' })),
+          ),
+          Effect.provideService(RedisService, deps.redis),
+          Effect.withSpan('tts.submit.rate_limit'),
+        );
+
+        const { text } = yield* attempt(() => validate(submitSchema, req.body));
+        // The rules run as a value this pipeline executes rather than as a
+        // function that throws from somewhere inside. What it can reject is
+        // fixed by its type.
+        yield* validateTtsText(text, deps.config.TTS_MAX_TEXT_LENGTH).pipe(
+          Effect.withSpan('tts.submit.validate_text'),
+        );
+
+        const inserted = yield* attemptPromise(() =>
+          insertUnderCapacity(user, text, idempotencyKey),
+        ).pipe(Effect.withSpan('tts.submit.capacity_and_insert'));
+        if ('lostRace' in inserted) return yield* replayOf(inserted.lostRace, req.body);
+
+        yield* attemptPromise(() => enqueueOrRemoveJob(inserted.created, correlationId)).pipe(
+          Effect.withSpan('tts.submit.enqueue'),
+        );
+
+        return { status: 202, job: inserted.created } as const;
+      }).pipe(
+        // The trace carries the same request id that pino stamps on every
+        // log line for this request and that the worker logs against, so
+        // one identifier walks between a response, its logs, and its
+        // trace in either direction.
+        Effect.withSpan('tts.submit', {
+          attributes: { ...(correlationId !== undefined && { 'request.id': correlationId }) },
+        }),
+      ),
+    );
+
+    res.status(submission.status).json(submissionBody(submission.job));
   });
 
   router.get('/v1/jobs', auth, async (req, res) => {
@@ -310,6 +353,7 @@ export function jobsRouter(deps: AppDeps): Router {
     // client as a 500. A missing object is an answer, not a blip, and
     // surfaces on the first try.
     const object = await runEffect(
+      deps.runtime,
       getAudioObject(deps.config.S3_BUCKET, job.audioKey).pipe(
         Effect.provideService(StorageService, deps.s3),
       ),

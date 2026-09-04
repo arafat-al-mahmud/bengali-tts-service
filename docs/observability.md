@@ -21,6 +21,48 @@ worker). The `Authorization` header is redacted before logging; request and
 response bodies are never logged, so passwords and raw API keys cannot
 reach the log stream. A test asserts this.
 
+## Traces
+
+Metrics say a submission took 45 ms; a trace says where the 45 ms went.
+`POST /v1/tts` records a span per stage under one parent, so a slow
+submission is attributed rather than guessed at:
+
+```
+tts.submit                        44.78 ms  ROOT
+  tts.submit.idempotency_replay   17.98 ms   +1.74ms
+  tts.submit.rate_limit            1.61 ms   +20.30ms
+  tts.submit.validate_text         0.21 ms   +22.55ms
+  tts.submit.capacity_and_insert  18.17 ms   +22.82ms
+  tts.submit.enqueue               3.65 ms   +41.07ms
+```
+
+Read that shape before optimising anything: the two database round trips
+account for ~80% of the request, while the three backpressure gates people
+assume are expensive cost under 2 ms combined. The replay lookup only
+appears when the request carries an `Idempotency-Key`.
+
+The root span carries `request.id`, the same id described above, so a log
+line leads to its trace and a trace leads back to its logs:
+
+```bash
+# in the Jaeger UI, or:
+curl -s 'http://localhost:16686/api/traces?service=bengali-tts-gateway&tags=%7B%22request.id%22%3A%22<request-id>%22%7D'
+```
+
+Jaeger runs in the same optional profile as the dashboard, on
+<http://localhost:16686>:
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318 docker compose --profile monitoring up -d
+```
+
+`OTEL_EXPORTER_OTLP_ENDPOINT` is what turns exporting on. Leave it unset
+and spans are still recorded but go nowhere, which is a supported way to
+run the service — serving a request never depends on a collector being
+up. Spans are batched, so an unreachable collector is dropped span data,
+never a slow request. Traces live in Jaeger's memory and are lost on
+restart, which is fine for a demo and not a retention strategy.
+
 ## Metrics
 
 `GET /metrics` on the gateway serves Prometheus text format.
