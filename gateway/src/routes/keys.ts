@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import type { AppDeps } from '../app.js';
 import { generateApiKey } from '../lib/api-keys.js';
-import { ApiError } from '../lib/errors.js';
+import { NotFound } from '../lib/errors.js';
 import { basicAuth, requireUser } from '../middleware/auth.js';
 
 export function keysRouter(deps: AppDeps): Router {
@@ -44,7 +44,7 @@ export function keysRouter(deps: AppDeps): Router {
       data: { revokedAt: new Date() },
     });
     if (result.count === 0) {
-      throw new ApiError(404, 'NOT_FOUND', 'Resource not found');
+      throw new NotFound();
     }
     res.status(204).end();
   });

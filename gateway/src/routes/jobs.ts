@@ -3,11 +3,20 @@ import { Router, type Request, type Response } from 'express';
 import type { Readable } from 'node:stream';
 import { z } from 'zod';
 import type { AppDeps } from '../app.js';
-import { ApiError } from '../lib/errors.js';
+import {
+  IdempotencyConflict,
+  JobFailed,
+  JobNotReady,
+  NotFound,
+  PendingCapExceeded,
+  QueueFull,
+  RateLimited,
+  ValidationFailed,
+} from '../lib/errors.js';
 import { enqueueTtsJob, queueDepth } from '../lib/queue.js';
 import { takeRateLimitToken } from '../lib/rate-limit.js';
 import { runEffect } from '../lib/run-effect.js';
-import { ttsTextApiError, validateTtsText } from '../lib/tts-text.js';
+import { validateTtsText } from '../lib/tts-text.js';
 import { requireParam, validate } from '../lib/validate.js';
 import { apiKeyAuth, requireUser } from '../middleware/auth.js';
 import { Prisma, type Job } from '../generated/prisma/client.js';
@@ -39,7 +48,7 @@ function readIdempotencyKey(req: { headers: Record<string, unknown> }): string |
   const raw = req.headers['idempotency-key'];
   if (raw === undefined) return undefined;
   if (typeof raw !== 'string' || raw.length === 0 || raw.length > 255) {
-    throw new ApiError(422, 'VALIDATION_ERROR', 'Idempotency-Key must be 1-255 characters');
+    throw new ValidationFailed({ message: 'Idempotency-Key must be 1-255 characters' });
   }
   return raw;
 }
@@ -55,7 +64,7 @@ export function jobsRouter(deps: AppDeps): Router {
     const job = await deps.prisma.job.findFirst({
       where: { id: requireParam(req, 'id'), userId: user.id },
     });
-    if (!job) throw new ApiError(404, 'NOT_FOUND', 'Resource not found');
+    if (!job) throw new NotFound();
     return job;
   }
 
@@ -73,11 +82,7 @@ export function jobsRouter(deps: AppDeps): Router {
   function respondForIdempotentRetry(res: Response, job: Job, body: unknown): void {
     const { text } = validate(submitSchema, body);
     if (text !== job.inputText) {
-      throw new ApiError(
-        409,
-        'IDEMPOTENCY_CONFLICT',
-        'This Idempotency-Key was already used with different input text',
-      );
+      throw new IdempotencyConflict();
     }
     res.status(200).json(submissionBody(job));
   }
@@ -109,8 +114,9 @@ export function jobsRouter(deps: AppDeps): Router {
     );
     if (!rate.allowed) {
       deps.metrics.gateRejections.inc({ gate: 'rate_limit' });
-      res.setHeader('Retry-After', String(rate.retryAfterSeconds));
-      throw new ApiError(429, 'RATE_LIMITED', 'Request rate limit exceeded; retry later');
+      // The wait travels on the error itself; the edge turns it into the
+      // Retry-After header, so nothing here needs the response object.
+      throw new RateLimited({ retryAfterSeconds: rate.retryAfterSeconds });
     }
 
     const { text } = validate(submitSchema, req.body);
@@ -118,7 +124,7 @@ export function jobsRouter(deps: AppDeps): Router {
     // function that throws from somewhere inside. What it can reject is
     // fixed by its type, and this line is the one place that turns any of
     // those rejections into a response.
-    await runEffect(validateTtsText(text, deps.config.TTS_MAX_TEXT_LENGTH), ttsTextApiError);
+    await runEffect(validateTtsText(text, deps.config.TTS_MAX_TEXT_LENGTH));
 
     // The pending count and the insert must act as one unit, or a burst of
     // concurrent submissions all reads the same count and lands the whole
@@ -134,11 +140,7 @@ export function jobsRouter(deps: AppDeps): Router {
         });
         if (pending >= deps.config.TTS_PENDING_CAP) {
           deps.metrics.gateRejections.inc({ gate: 'pending_cap' });
-          throw new ApiError(
-            429,
-            'PENDING_CAP_EXCEEDED',
-            'Too many unfinished jobs; wait for them to complete instead of retrying',
-          );
+          throw new PendingCapExceeded();
         }
 
         // Unlike the per-user cap above, this global check is check-then-act:
@@ -151,7 +153,7 @@ export function jobsRouter(deps: AppDeps): Router {
         const depth = await queueDepth(deps.queue);
         if (depth >= deps.config.TTS_QUEUE_CAPACITY) {
           deps.metrics.gateRejections.inc({ gate: 'queue_full' });
-          throw new ApiError(503, 'QUEUE_FULL', 'Service is at capacity; retry later');
+          throw new QueueFull();
         }
 
         return tx.job.create({
@@ -293,10 +295,10 @@ export function jobsRouter(deps: AppDeps): Router {
   router.get('/v1/jobs/:id/audio', auth, async (req, res) => {
     const job = await findOwnedJob(req);
     if (job.status === 'FAILED') {
-      throw new ApiError(409, 'JOB_FAILED', 'Job failed; no audio was produced');
+      throw new JobFailed();
     }
     if (job.status !== 'COMPLETED' || !job.audioKey) {
-      throw new ApiError(409, 'JOB_NOT_READY', 'Job has not completed yet; keep polling');
+      throw new JobNotReady();
     }
 
     const object = await deps.s3.send(

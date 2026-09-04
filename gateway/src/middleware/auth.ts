@@ -1,7 +1,14 @@
 import bcrypt from 'bcryptjs';
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import { hashApiKey, hashesMatch, looksLikeApiKey } from '../lib/api-keys.js';
-import { ApiError } from '../lib/errors.js';
+import {
+  InvalidApiKey,
+  InvalidCredentials,
+  MissingApiKey,
+  MissingCredentials,
+  RevokedApiKey,
+  Unauthenticated,
+} from '../lib/errors.js';
 import type { PrismaClient } from '../lib/prisma.js';
 
 export interface AuthedUser {
@@ -19,7 +26,7 @@ declare global {
 }
 
 export function requireUser(req: Request): AuthedUser {
-  if (!req.user) throw new ApiError(401, 'UNAUTHENTICATED', 'Authentication required');
+  if (!req.user) throw new Unauthenticated();
   return req.user;
 }
 
@@ -31,7 +38,7 @@ export function basicAuth(prisma: PrismaClient): RequestHandler {
   return async (req: Request, _res: Response, next: NextFunction) => {
     const header = req.headers.authorization;
     if (!header?.startsWith('Basic ')) {
-      throw new ApiError(401, 'MISSING_CREDENTIALS', 'Provide email and password via Basic auth');
+      throw new MissingCredentials();
     }
     const decoded = Buffer.from(header.slice('Basic '.length), 'base64').toString('utf8');
     const separator = decoded.indexOf(':');
@@ -44,7 +51,7 @@ export function basicAuth(prisma: PrismaClient): RequestHandler {
     const hash = user?.passwordHash ?? (await bcrypt.hash('decoy-password', 4));
     const valid = await bcrypt.compare(password, hash);
     if (!user || !valid) {
-      throw new ApiError(401, 'INVALID_CREDENTIALS', 'Email or password is incorrect');
+      throw new InvalidCredentials();
     }
     req.user = { id: user.id, email: user.email };
     next();
@@ -59,11 +66,11 @@ export function apiKeyAuth(prisma: PrismaClient): RequestHandler {
   return async (req: Request, _res: Response, next: NextFunction) => {
     const header = req.headers.authorization;
     if (!header?.startsWith('Bearer ')) {
-      throw new ApiError(401, 'MISSING_API_KEY', 'Provide an API key via Bearer auth');
+      throw new MissingApiKey();
     }
     const key = header.slice('Bearer '.length).trim();
     if (!looksLikeApiKey(key)) {
-      throw new ApiError(401, 'INVALID_API_KEY', 'API key is not recognized');
+      throw new InvalidApiKey();
     }
     const keyHash = hashApiKey(key);
     const record = await prisma.apiKey.findUnique({
@@ -71,10 +78,10 @@ export function apiKeyAuth(prisma: PrismaClient): RequestHandler {
       include: { user: true },
     });
     if (!record || !hashesMatch(record.keyHash, keyHash)) {
-      throw new ApiError(401, 'INVALID_API_KEY', 'API key is not recognized');
+      throw new InvalidApiKey();
     }
     if (record.revokedAt) {
-      throw new ApiError(401, 'REVOKED_API_KEY', 'API key has been revoked');
+      throw new RevokedApiKey();
     }
     // Best-effort freshness marker; auth must not fail on a write hiccup.
     prisma.apiKey
