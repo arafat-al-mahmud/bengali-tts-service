@@ -9,6 +9,8 @@ const configSchema = z.object({
   S3_SECRET_KEY: z.string().min(1),
   S3_BUCKET: z.string().min(1).default('tts-audio'),
   LOG_LEVEL: z.string().default('info'),
+  // Collector for request spans. Empty means record but export nowhere.
+  OTEL_EXPORTER_OTLP_ENDPOINT: z.string().default(''),
   TTS_QUEUE_NAME: z.string().min(1).default('tts'),
   TTS_MAX_TEXT_LENGTH: z.coerce.number().int().positive().default(1000),
   POLL_INTERVAL_MS: z.coerce.number().int().positive().default(2000),

@@ -47,11 +47,13 @@ See [docs/indicf5-setup.md](docs/indicf5-setup.md) for download size, device sel
 
 ### Monitoring
 
-Prometheus and Grafana with a pre-provisioned dashboard, no manual configuration:
+Prometheus and Grafana with a pre-provisioned dashboard, plus Jaeger for
+request traces, no manual configuration:
 
 ```bash
-docker compose --profile monitoring up -d --build
+OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318 docker compose --profile monitoring up -d --build
 # Grafana at http://localhost:3001, anonymous viewer access
+# Jaeger  at http://localhost:16686, service "bengali-tts-gateway"
 ```
 
 ## Architecture
@@ -389,6 +391,7 @@ The index scan touches 22 rows (one page plus the has-more probe) regardless of 
 - **Structured JSON logs** with a correlation id that follows a request from submission through queueing, inference, and completion; one grep traces a job end to end across both services.
 - **Prometheus metrics** at `/metrics`: queue depth, jobs by status, synthesis duration histogram, backpressure rejections by gate, HTTP latency by route.
 - **Grafana dashboard** provisioned automatically under the `monitoring` compose profile.
+- **Distributed traces** for job submission: a span per pipeline stage under one parent, so a slow submission is attributed to the gate, the transaction, or the enqueue rather than guessed at. Exported over OTLP to Jaeger in the same profile; with no collector configured the spans are recorded and go nowhere, so serving a request never depends on one.
 
 Captured live during the committed load test: queue depth climbing to capacity and draining, each backpressure gate rejecting in turn, and the request-rate and latency panels staying flat while it happens.
 

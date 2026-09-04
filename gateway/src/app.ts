@@ -10,6 +10,7 @@ import type { PrismaClient } from './lib/prisma.js';
 import type { TtsQueue } from './lib/queue.js';
 import type { Redis } from './lib/redis.js';
 import type { SseHub } from './lib/sse.js';
+import type { GatewayRuntime } from './lib/tracing.js';
 import { authRouter } from './routes/auth.js';
 import { healthRouter } from './routes/health.js';
 import { jobsRouter } from './routes/jobs.js';
@@ -18,6 +19,8 @@ import { meRouter } from './routes/me.js';
 
 export interface AppDeps {
   config: Config;
+  /** Where Effects run, and what holds the tracer for the process. */
+  runtime: GatewayRuntime;
   prisma: PrismaClient;
   redis: Redis;
   s3: S3Client;

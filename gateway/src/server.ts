@@ -9,9 +9,14 @@ import { createRedis } from './lib/redis.js';
 import { gracefulShutdown } from './lib/shutdown.js';
 import { createSseHub } from './lib/sse.js';
 import { createS3, ensureBucket, StorageService } from './lib/storage.js';
+import { makeRuntime } from './lib/tracing.js';
 
 const config = loadConfig();
 const logger = pino({ level: config.LOG_LEVEL });
+
+// Built before anything else runs, so every Effect in the process shares
+// one tracer and a request's spans land in one trace.
+const runtime = makeRuntime(config.OTEL_EXPORTER_OTLP_ENDPOINT);
 
 const prisma = createPrisma(config.DATABASE_URL);
 const redis = createRedis(config.REDIS_URL);
@@ -26,7 +31,7 @@ await Effect.runPromise(
 
 const metrics = createMetrics(prisma, queue);
 const sse = createSseHub();
-const app = createApp({ config, prisma, redis, s3, queue, logger, metrics, sse });
+const app = createApp({ config, runtime, prisma, redis, s3, queue, logger, metrics, sse });
 
 const server = app.listen(config.PORT, () => {
   logger.info({ port: config.PORT }, 'gateway listening');
@@ -40,6 +45,9 @@ function shutdown(signal: string): void {
   gracefulShutdown(
     server,
     async () => {
+      // Before the connections go: disposing flushes spans still batched
+      // in memory, so the last requests before a deploy are not lost.
+      await runtime.dispose();
       await queue.close();
       await prisma.$disconnect();
       redis.disconnect();
