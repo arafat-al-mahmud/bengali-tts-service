@@ -6,7 +6,8 @@ import type { AppDeps } from '../app.js';
 import { ApiError } from '../lib/errors.js';
 import { enqueueTtsJob, queueDepth } from '../lib/queue.js';
 import { takeRateLimitToken } from '../lib/rate-limit.js';
-import { validateTtsText } from '../lib/tts-text.js';
+import { runEffect } from '../lib/run-effect.js';
+import { ttsTextApiError, validateTtsText } from '../lib/tts-text.js';
 import { requireParam, validate } from '../lib/validate.js';
 import { apiKeyAuth, requireUser } from '../middleware/auth.js';
 import { Prisma, type Job } from '../generated/prisma/client.js';
@@ -113,7 +114,11 @@ export function jobsRouter(deps: AppDeps): Router {
     }
 
     const { text } = validate(submitSchema, req.body);
-    validateTtsText(text, deps.config.TTS_MAX_TEXT_LENGTH);
+    // The rules run as a value the route executes here rather than as a
+    // function that throws from somewhere inside. What it can reject is
+    // fixed by its type, and this line is the one place that turns any of
+    // those rejections into a response.
+    await runEffect(validateTtsText(text, deps.config.TTS_MAX_TEXT_LENGTH), ttsTextApiError);
 
     // The pending count and the insert must act as one unit, or a burst of
     // concurrent submissions all reads the same count and lands the whole
