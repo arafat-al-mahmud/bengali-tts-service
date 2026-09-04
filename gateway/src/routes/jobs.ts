@@ -12,7 +12,7 @@ import {
   QueueFull,
   ValidationFailed,
 } from '../lib/errors.js';
-import { enqueueTtsJob, queueDepth } from '../lib/queue.js';
+import { enqueueTtsJob, QueueService, queueDepth } from '../lib/queue.js';
 import { takeRateLimitToken } from '../lib/rate-limit.js';
 import { RedisService } from '../lib/redis.js';
 import { runEffect } from '../lib/run-effect.js';
@@ -151,7 +151,9 @@ export function jobsRouter(deps: AppDeps): Router {
         // is bounded by the connection pool (only that many transactions sit
         // between this read and their insert at once), and the gate is load
         // shedding, not a contract, so approximate is the right trade.
-        const depth = await queueDepth(deps.queue);
+        const depth = await runEffect(
+          queueDepth().pipe(Effect.provideService(QueueService, deps.queue)),
+        );
         if (depth >= deps.config.TTS_QUEUE_CAPACITY) {
           deps.metrics.gateRejections.inc({ gate: 'queue_full' });
           throw new QueueFull();
@@ -185,14 +187,15 @@ export function jobsRouter(deps: AppDeps): Router {
       throw err;
     }
     try {
-      await enqueueTtsJob(
-        deps.queue,
-        job.id,
-        {
-          attempts: deps.config.TTS_JOB_ATTEMPTS,
-          backoffMs: deps.config.TTS_RETRY_BACKOFF_MS,
-        },
-        typeof req.id === 'string' ? req.id : undefined,
+      await runEffect(
+        enqueueTtsJob(
+          job.id,
+          {
+            attempts: deps.config.TTS_JOB_ATTEMPTS,
+            backoffMs: deps.config.TTS_RETRY_BACKOFF_MS,
+          },
+          typeof req.id === 'string' ? req.id : undefined,
+        ).pipe(Effect.provideService(QueueService, deps.queue)),
       );
     } catch (err) {
       // A job row without a queue entry would wait forever; better to fail

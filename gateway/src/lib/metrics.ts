@@ -1,7 +1,8 @@
+import { Effect } from 'effect';
 import type { NextFunction, Request, Response } from 'express';
 import { Counter, Gauge, Histogram, Registry } from 'prom-client';
 import type { PrismaClient } from './prisma.js';
-import { queueDepth, type TtsQueue } from './queue.js';
+import { QueueService, queueDepth, type TtsQueue } from './queue.js';
 
 export interface Metrics {
   registry: Registry;
@@ -38,7 +39,9 @@ export function createMetrics(prisma: PrismaClient, queue: TtsQueue): Metrics {
     help: 'Jobs currently waiting, delayed, or running in the queue',
     registers: [registry],
     async collect() {
-      this.set(await queueDepth(queue));
+      this.set(
+        await Effect.runPromise(queueDepth().pipe(Effect.provideService(QueueService, queue))),
+      );
     },
   });
 
